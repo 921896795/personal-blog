@@ -149,10 +149,6 @@ input {
 }
 
 .hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.55fr);
-  gap: 44px;
-  align-items: center;
   padding: 48px 0 54px;
 }
 
@@ -189,30 +185,6 @@ h3 {
   margin: 20px 0 0;
   color: var(--muted);
   font-size: 1.12rem;
-}
-
-.hero-panel {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  padding: 22px;
-}
-
-.hero-panel dl {
-  margin: 0;
-  display: grid;
-  gap: 18px;
-}
-
-.hero-panel dt {
-  color: var(--muted);
-  font-size: 0.86rem;
-}
-
-.hero-panel dd {
-  margin: 2px 0 0;
-  font-weight: 750;
 }
 
 .section {

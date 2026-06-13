@@ -16,6 +16,9 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
+# mcp
+.mcp.json
+
 # system
 .DS_Store
 Thumbs.db

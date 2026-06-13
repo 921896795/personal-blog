@@ -1,0 +1,64 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+---
+
+<BaseLayout title="搜索" description="搜索博客文章">
+  <section class="container">
+    <p class="eyebrow">Search</p>
+    <h1>搜索</h1>
+    <p class="lead">输入关键词，查找标题、摘要和标签。</p>
+  </section>
+  <section class="container section">
+    <input class="search-box" id="search-input" type="search" placeholder="搜索文章..." />
+    <div class="post-list" id="search-results" style="margin-top: 20px"></div>
+  </section>
+</BaseLayout>
+
+<script>
+  type SearchItem = {
+    title: string;
+    description: string;
+    tags: string[];
+    url: string;
+    date: string;
+  };
+
+  const input = document.querySelector<HTMLInputElement>("#search-input");
+  const results = document.querySelector<HTMLDivElement>("#search-results");
+  const posts: SearchItem[] = await fetch("/api/search.json").then(res => res.json());
+
+  function render(items: SearchItem[]) {
+    if (!results) return;
+    results.innerHTML = items
+      .map(
+        item => `
+          <a class="post-card" href="${item.url}">
+            <div class="post-meta">${item.date}</div>
+            <h3>${item.title}</h3>
+            <p class="muted">${item.description}</p>
+            <div class="tag-row">${item.tags.map(tag => `<span class="tag">#${tag}</span>`).join("")}</div>
+          </a>
+        `
+      )
+      .join("");
+  }
+
+  render(posts.slice(0, 8));
+
+  input?.addEventListener("input", () => {
+    const keyword = input.value.trim().toLowerCase();
+    if (!keyword) {
+      render(posts.slice(0, 8));
+      return;
+    }
+
+    render(
+      posts.filter(item =>
+        [item.title, item.description, item.tags.join(" ")]
+          .join(" ")
+          .toLowerCase()
+          .includes(keyword)
+      )
+    );
+  });
+</script>

@@ -1,0 +1,21 @@
+{
+  "name": "personal-blog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/astro-cli.mjs dev",
+    "start": "node scripts/astro-cli.mjs dev",
+    "build": "node scripts/astro-cli.mjs build",
+    "preview": "node scripts/astro-cli.mjs preview"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^4.0.0",
+    "@astrojs/rss": "^4.0.0",
+    "@astrojs/sitemap": "^3.2.0",
+    "astro": "^5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

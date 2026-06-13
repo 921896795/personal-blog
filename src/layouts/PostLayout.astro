@@ -1,0 +1,28 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import TagList from "@/components/TagList.astro";
+import { formatDate, getReadingTime, type Post } from "@/utils/posts";
+
+type Props = {
+  post: Post;
+};
+
+const { post } = Astro.props;
+const readingTime = getReadingTime(post.body ?? "");
+---
+
+<BaseLayout title={post.data.title} description={post.data.description}>
+  <article class="container">
+    <header class="article-header">
+      <p class="eyebrow">{formatDate(post.data.pubDatetime)} · {readingTime}</p>
+      <h1>{post.data.title}</h1>
+      <p class="lead">{post.data.description}</p>
+      <div style="margin-top: 18px">
+        <TagList tags={post.data.tags} />
+      </div>
+    </header>
+    <div class="article-content">
+      <slot />
+    </div>
+  </article>
+</BaseLayout>

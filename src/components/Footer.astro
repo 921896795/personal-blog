@@ -1,0 +1,15 @@
+---
+import { SITE, SOCIAL_LINKS } from "@/config";
+
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <span>© {year} {SITE.author}. Built with Astro, deployed on Netlify.</span>
+    <span class="tag-row">
+      {SOCIAL_LINKS.map(link => <a href={link.href}>{link.label}</a>)}
+      <a href="/rss.xml">RSS</a>
+    </span>
+  </div>
+</footer>

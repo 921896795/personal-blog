@@ -1,0 +1,67 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import PostCard from "@/components/PostCard.astro";
+import { getPublishedPosts } from "@/utils/posts";
+
+const posts = await getPublishedPosts();
+const latestPosts = posts.slice(0, 4);
+---
+
+<BaseLayout>
+  <section class="container hero">
+    <div>
+      <p class="eyebrow">Personal Blog / Notes / Projects</p>
+      <h1>把工作里的观察，沉淀成长期可复用的知识。</h1>
+      <p class="lead">
+        这里记录数据建模、业务分析、产品思考、技术实践，也存放一些正在长出来的个人项目。
+      </p>
+    </div>
+    <aside class="hero-panel" aria-label="博客概览">
+      <dl>
+        <div>
+          <dt>主题</dt>
+          <dd>数据、技术、产品与日常复盘</dd>
+        </div>
+        <div>
+          <dt>更新方式</dt>
+          <dd>Markdown 写作，Git 推送自动发布</dd>
+        </div>
+        <div>
+          <dt>部署</dt>
+          <dd>Netlify 静态托管</dd>
+        </div>
+      </dl>
+    </aside>
+  </section>
+
+  <section class="container section">
+    <div class="section-head">
+      <div>
+        <h2>最新文章</h2>
+        <p class="muted">持续写，慢慢把零散经验连成体系。</p>
+      </div>
+      <a href="/posts/">全部文章</a>
+    </div>
+    <div class="post-list">
+      {latestPosts.map(post => <PostCard post={post} />)}
+    </div>
+  </section>
+
+  <section class="container section">
+    <h2>正在关注</h2>
+    <div class="grid">
+      <div class="info-card">
+        <h3>数据建模</h3>
+        <p class="muted">从指标口径、维度建模到可维护的 BI 资产。</p>
+      </div>
+      <div class="info-card">
+        <h3>个人系统</h3>
+        <p class="muted">用笔记、自动化和复盘降低重复劳动。</p>
+      </div>
+      <div class="info-card">
+        <h3>产品体验</h3>
+        <p class="muted">观察工具如何帮助人更清楚地完成判断。</p>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

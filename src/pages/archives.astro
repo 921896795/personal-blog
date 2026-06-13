@@ -1,0 +1,38 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { formatDate, getPostSlug, getPublishedPosts } from "@/utils/posts";
+
+const posts = await getPublishedPosts();
+const groups = posts.reduce<Record<string, typeof posts>>((acc, post) => {
+  const year = String(post.data.pubDatetime.getFullYear());
+  acc[year] = acc[year] ?? [];
+  acc[year].push(post);
+  return acc;
+}, {});
+---
+
+<BaseLayout title="归档" description="按年份归档的文章">
+  <section class="container">
+    <p class="eyebrow">Archive</p>
+    <h1>归档</h1>
+    <p class="lead">按照时间线回看写作轨迹。</p>
+  </section>
+  <section class="container section archive-list">
+    {
+      Object.entries(groups).map(([year, yearPosts]) => (
+        <div class="archive-year">
+          <h2>{year}</h2>
+          <div class="post-list">
+            {yearPosts.map(post => (
+              <a class="post-card" href={`/posts/${getPostSlug(post)}/`}>
+                <div class="post-meta">{formatDate(post.data.pubDatetime)}</div>
+                <h3>{post.data.title}</h3>
+                <p class="muted">{post.data.description}</p>
+              </a>
+            ))}
+          </div>
+        </div>
+      ))
+    }
+  </section>
+</BaseLayout>

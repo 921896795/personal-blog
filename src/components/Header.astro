@@ -1,0 +1,46 @@
+---
+import { NAV_LINKS, SITE } from "@/config";
+
+const pathname = Astro.url.pathname;
+---
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="/" aria-label={SITE.title}>
+      <span class="brand-mark">T</span>
+      <span>{SITE.title}</span>
+    </a>
+    <nav class="site-nav" aria-label="主导航">
+      {
+        NAV_LINKS.map(link => (
+          <a
+            href={link.href}
+            aria-current={
+              pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href))
+                ? "page"
+                : undefined
+            }
+          >
+            {link.label}
+          </a>
+        ))
+      }
+      <a href="/search/" aria-current={pathname.startsWith("/search/") ? "page" : undefined}>
+        搜索
+      </a>
+      <button class="icon-button" id="theme-toggle" type="button" title="切换深色模式" aria-label="切换深色模式">
+        ◐
+      </button>
+    </nav>
+  </div>
+</header>
+
+<script>
+  const button = document.querySelector<HTMLButtonElement>("#theme-toggle");
+
+  button?.addEventListener("click", () => {
+    const root = document.documentElement;
+    const isDark = root.classList.toggle("dark");
+    localStorage.setItem("theme", isDark ? "dark" : "light");
+  });
+</script>

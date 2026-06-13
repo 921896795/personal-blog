@@ -1,0 +1,38 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import PostCard from "@/components/PostCard.astro";
+import Pagination from "@/components/Pagination.astro";
+import { getPublishedPosts } from "@/utils/posts";
+
+export async function getStaticPaths() {
+  const POSTS_PER_PAGE = 8;
+  const allPosts = await getPublishedPosts();
+  const totalPages = Math.ceil(allPosts.length / POSTS_PER_PAGE);
+
+  return Array.from({ length: totalPages - 1 }, (_, i) => {
+    const page = i + 2;
+    return {
+      params: { page: String(page) },
+      props: {
+        posts: allPosts.slice((page - 1) * POSTS_PER_PAGE, page * POSTS_PER_PAGE),
+        currentPage: page,
+        totalPages
+      }
+    };
+  });
+}
+
+const { posts, currentPage, totalPages } = Astro.props;
+---
+
+<BaseLayout title={`文章 · 第 ${currentPage} 页`} description="所有博客文章">
+  <section class="container">
+    <p class="eyebrow">Posts</p>
+    <h1>文章</h1>
+    <p class="lead">按发布时间倒序整理的全部文章 · 第 {currentPage} 页</p>
+  </section>
+  <section class="container section post-list">
+    {posts.map(post => <PostCard post={post} />)}
+  </section>
+  <Pagination currentPage={currentPage} totalPages={totalPages} />
+</BaseLayout>

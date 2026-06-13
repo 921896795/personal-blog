@@ -1,0 +1,19 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { getAllTags } from "@/utils/posts";
+
+const tags = await getAllTags();
+---
+
+<BaseLayout title="标签" description="按标签浏览文章">
+  <section class="container">
+    <p class="eyebrow">Tags</p>
+    <h1>标签</h1>
+    <p class="lead">用标签把相近主题的文章串起来。</p>
+  </section>
+  <section class="container section">
+    <div class="tag-row">
+      {tags.map(({ tag, count }) => <a class="tag" href={`/tags/${encodeURIComponent(tag)}/`}>#{tag} · {count}</a>)}
+    </div>
+  </section>
+</BaseLayout>

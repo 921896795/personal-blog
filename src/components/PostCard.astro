@@ -1,6 +1,6 @@
 ---
 import TagList from "@/components/TagList.astro";
-import { formatDate, getPostSlug, getReadingTime, type Post } from "@/utils/posts";
+import { formatDate, getPostSlug, type Post } from "@/utils/posts";
 
 type Props = {
   post: Post;
@@ -13,8 +13,6 @@ const href = `/posts/${getPostSlug(post)}/`;
 <a class="post-card" href={href}>
   <div class="post-meta">
     <time datetime={post.data.pubDatetime.toISOString()}>{formatDate(post.data.pubDatetime)}</time>
-    <span>·</span>
-    <span>{getReadingTime(post.body ?? "")}</span>
   </div>
   <h3>{post.data.title}</h3>
   <p class="muted">{post.data.description}</p>

@@ -5,6 +5,8 @@
 [build.environment]
   NODE_VERSION = "22"
   ASTRO_TELEMETRY_DISABLED = "1"
+  # 站点访问密码（构建期读取，明文不入前端产物，只输出 SHA-256 摘要）
+  PUBLIC_SITE_PASSWORD = "123456"
 
 [[headers]]
   for = "/*"

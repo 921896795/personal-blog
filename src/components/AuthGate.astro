@@ -1,0 +1,87 @@
+---
+import { isPasswordProtected, passwordHash } from "@/auth";
+---
+
+{
+  isPasswordProtected && (
+    <div class="auth-gate" role="dialog" aria-modal="true" aria-labelledby="auth-gate-title">
+      <form class="auth-gate-card" id="auth-gate-form">
+        <p class="eyebrow">Private</p>
+        <h1 id="auth-gate-title">需要密码</h1>
+        <p class="muted">这个站点仅限受邀访问，请输入密码继续。</p>
+        <input
+          type="password"
+          id="auth-gate-password"
+          name="password"
+          autocomplete="current-password"
+          placeholder="访问密码"
+          aria-label="访问密码"
+          autofocus
+        />
+        <button type="submit">进入站点</button>
+        <p class="auth-gate-error" id="auth-gate-error" role="alert" hidden>
+          密码不正确，请重试。
+        </p>
+      </form>
+    </div>
+  )
+}
+
+<script is:inline>
+  (function () {
+    var form = document.getElementById("auth-gate-form");
+    if (!form) return;
+
+    var hash = document.documentElement.getAttribute("data-auth-hash");
+    if (!hash) {
+      document.documentElement.classList.remove("auth-locked");
+      return;
+    }
+
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+
+      var input = document.getElementById("auth-gate-password");
+      var error = document.getElementById("auth-gate-error");
+      var value = input.value;
+
+      if (!value) {
+        input.focus();
+        return;
+      }
+
+      if (!window.crypto || !crypto.subtle) {
+        error.hidden = false;
+        error.textContent = "当前环境不支持安全校验，请通过 HTTPS 访问。";
+        return;
+      }
+
+      crypto.subtle
+        .digest("SHA-256", new TextEncoder().encode(value))
+        .then(function (buffer) {
+          var actual = Array.prototype.map
+            .call(new Uint8Array(buffer), function (byte) {
+              return ("0" + byte.toString(16)).slice(-2);
+            })
+            .join("");
+
+          if (actual !== hash) {
+            error.hidden = false;
+            error.textContent = "密码不正确，请重试。";
+            input.select();
+            return;
+          }
+
+          try {
+            sessionStorage.setItem("blog-auth-token", hash);
+          } catch (err) {}
+
+          document.documentElement.classList.remove("auth-locked");
+        })
+        .catch(function () {
+          error.hidden = false;
+          error.textContent = "校验失败，请重试。";
+        });
+    });
+  })();
+</script>

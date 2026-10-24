@@ -1,7 +1,9 @@
 ---
 import Header from "@/components/Header.astro";
 import Footer from "@/components/Footer.astro";
+import AuthGate from "@/components/AuthGate.astro";
 import { SITE } from "@/config";
+import { isPasswordProtected, passwordHash } from "@/auth";
 import "@/styles/global.css";
 
 type Props = {
@@ -17,7 +19,7 @@ const canonical = new URL(Astro.url.pathname, SITE.url);
 ---
 
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-auth-hash={isPasswordProtected ? passwordHash : ""}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -37,6 +39,16 @@ const canonical = new URL(Astro.url.pathname, SITE.url);
         document.documentElement.classList.add("dark");
       }
     </script>
+    <script is:inline>
+      (function () {
+        var hash = document.documentElement.getAttribute("data-auth-hash");
+        if (!hash) return;
+        try {
+          if (sessionStorage.getItem("blog-auth-token") === hash) return;
+        } catch (err) {}
+        document.documentElement.classList.add("auth-locked");
+      })();
+    </script>
   </head>
   <body>
     <div class="site-shell">
@@ -46,5 +58,6 @@ const canonical = new URL(Astro.url.pathname, SITE.url);
       </main>
       <Footer />
     </div>
+    <AuthGate />
   </body>
 </html>

@@ -1,0 +1,859 @@
+---
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import BaseLayout from "@/layouts/BaseLayout.astro";
+
+type Entry = { id: number; t: string; s: string | null; d: string; st: string };
+type Payload = {
+  syncedAt: string;
+  stats: {
+    total: number;
+    months: number;
+    years: number;
+    start: string | null;
+    end: string | null;
+    latest: string | null;
+  };
+  entries: Entry[];
+};
+
+const dataPath = resolve(process.cwd(), "public/data/books.json");
+const data: Payload = existsSync(dataPath)
+  ? JSON.parse(readFileSync(dataPath, "utf8"))
+  : {
+      syncedAt: "",
+      stats: { total: 0, months: 0, years: 0, start: null, end: null, latest: null },
+      entries: []
+    };
+
+// 首屏按默认区间（当前自然月）渲染，与客户端初始筛选一致
+const now = new Date();
+const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+const initialStart = `${currentMonth}-01`;
+const initialEnd = (() => {
+  const [year, index] = currentMonth.split("-").map(Number);
+  const last = new Date(year, index, 0);
+  return `${year}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
+})();
+const initialEntries = data.entries.filter(entry => entry.d >= initialStart && entry.d <= initialEnd);
+const initialSpan = `${currentMonth} ~ ${currentMonth}`;
+
+const syncedLabel = data.syncedAt
+  ? new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(data.syncedAt))
+  : "—";
+---
+
+<BaseLayout title="读书" description="按读完时间记录的读书书架">
+  <section class="container bks-hero">
+    <p class="eyebrow">Reading Shelf</p>
+    <h1 class="bks-title">读书</h1>
+    <p class="lead bks-lead">每读完一本，就往书架上放一本。</p>
+    <p class="bks-last" id="bks-last">
+      最近读完 · <b>{data.stats.latest ?? "—"}</b>
+    </p>
+
+    <dl class="bks-stats">
+      <div>
+        <dt>读完书数</dt>
+        <dd id="bks-stat-total">{initialEntries.length}<small>本</small></dd>
+      </div>
+      <div>
+        <dt>涉及月份</dt>
+        <dd id="bks-stat-months">0<small>个月</small></dd>
+      </div>
+      <div>
+        <dt>单月最多</dt>
+        <dd id="bks-stat-peak">0<small>本</small></dd>
+      </div>
+      <div>
+        <dt>记录跨度</dt>
+        <dd class="bks-span" id="bks-stat-span">{initialSpan}<small>1 个月</small></dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="container">
+    <div class="bks-range-bar">
+      <div class="bks-chips" id="bks-presets" role="group" aria-label="时间范围">
+        <button type="button" data-preset="week" aria-pressed="false">本周</button>
+        <button type="button" data-preset="last7" aria-pressed="false">近 7 天</button>
+        <button type="button" data-preset="last30" aria-pressed="false">近 30 天</button>
+        <button type="button" data-preset="month" aria-pressed="true">本月</button>
+        <button type="button" data-preset="year" aria-pressed="false">本年</button>
+        <button type="button" data-preset="all" aria-pressed="false">全部</button>
+      </div>
+
+      <div class="bks-pickers">
+        <label>
+          月份
+          <select id="bks-month">
+            <option value="all">全部</option>
+          </select>
+        </label>
+        <label>
+          起
+          <input type="date" id="bks-start" />
+        </label>
+        <label>
+          止
+          <input type="date" id="bks-end" />
+        </label>
+      </div>
+    </div>
+
+    <p class="bks-summary" id="bks-summary">—</p>
+  </section>
+
+  <section class="container bks-panel-wrap">
+    <div class="bks-panel">
+      <header class="bks-panel-head">
+        <div>
+          <h2 id="bks-chart-title">阅读节奏</h2>
+          <p class="muted" id="bks-chart-sub">每个月读完的书本数，按年份着色</p>
+        </div>
+        <span class="bks-meta" id="bks-chart-meta">—</span>
+      </header>
+      <div class="bks-chart-wrap">
+        <div class="bks-chart" id="bks-chart"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="container bks-panel-wrap">
+    <div class="bks-panel">
+      <header class="bks-panel-head">
+        <div>
+          <h2>书架</h2>
+          <p class="muted">按读完月份分组，书脊颜色对应年份</p>
+        </div>
+        <span class="bks-meta" id="bks-shelf-meta">—</span>
+      </header>
+      <div class="bks-shelf" id="bks-shelf">
+        <p class="bks-empty">正在载入…</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="container">
+    <p class="bks-source">
+      数据来源：MySQL 表 <code>dty_books</code> · 最近同步 {syncedLabel}
+    </p>
+  </section>
+</BaseLayout>
+
+<script type="application/json" id="bks-data" set:html={JSON.stringify(data).replace(/</g, "\\u003c")}></script>
+
+<style is:global>
+  .bks-hero {
+    padding-bottom: 10px;
+  }
+
+  .bks-title {
+    font-size: clamp(2.6rem, 9vw, 5rem);
+    letter-spacing: -0.02em;
+  }
+
+  .bks-lead {
+    margin-top: 14px;
+  }
+
+  .bks-last {
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+    margin: 16px 0 0;
+    padding: 5px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent), transparent 93%);
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+
+  .bks-last b {
+    color: var(--accent-strong);
+    font-weight: 700;
+  }
+
+  .bks-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin: 24px 0 0;
+    padding: 0;
+  }
+
+  .bks-stats div {
+    position: relative;
+    display: grid;
+    gap: 2px;
+    padding: 14px 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .bks-stats div::after {
+    content: "";
+    position: absolute;
+    inset: auto -30% -60% auto;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent), transparent 80%), transparent 70%);
+  }
+
+  .bks-stats dt {
+    color: var(--muted);
+    font-size: 0.76rem;
+    letter-spacing: 0.16em;
+  }
+
+  .bks-stats dd {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+  }
+
+  .bks-stats dd small {
+    margin-left: 5px;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .bks-stats .bks-span {
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .bks-range-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    align-items: center;
+    margin: 24px 0 10px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .bks-pickers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-left: auto;
+  }
+
+  .bks-pickers label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .bks-pickers select,
+  .bks-pickers input {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--surface-strong);
+    color: var(--text);
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bks-pickers select:focus,
+  .bks-pickers input:focus {
+    outline: 2px solid color-mix(in srgb, var(--accent), transparent 55%);
+    outline-offset: 1px;
+  }
+
+  .bks-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .bks-chips button {
+    padding: 6px 15px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+
+  .bks-chips button:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .bks-chips button[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--surface-strong);
+    font-weight: 700;
+  }
+
+  .bks-summary {
+    margin: 0 0 16px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bks-summary b {
+    color: var(--text);
+  }
+
+  .bks-panel-wrap {
+    margin-bottom: 16px;
+  }
+
+  .bks-panel {
+    padding: 20px 22px 22px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background:
+      radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent), transparent 93%), transparent 55%),
+      var(--surface);
+  }
+
+  .bks-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .bks-panel-head h2 {
+    margin: 0 0 4px;
+    font-size: 1.15rem;
+  }
+
+  .bks-panel-head p {
+    margin: 0;
+    font-size: 0.84rem;
+  }
+
+  .bks-meta {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .bks-chart-wrap {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .bks-chart {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+    min-height: 156px;
+    padding-top: 8px;
+  }
+
+  .bks-col {
+    display: flex;
+    flex: 1 0 24px;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 24px;
+    height: 148px;
+    text-align: center;
+  }
+
+  .bks-col-bar {
+    width: 100%;
+    min-height: 2px;
+    border-radius: 5px 5px 2px 2px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--yc), transparent 20%), var(--yc));
+    transition: filter 0.15s, height 0.2s;
+  }
+
+  .bks-col-bar.is-empty {
+    background: color-mix(in srgb, var(--line), transparent 15%);
+  }
+
+  .bks-col:hover .bks-col-bar {
+    filter: saturate(1.25) brightness(1.06);
+  }
+
+  .bks-col-label {
+    color: var(--muted);
+    font-size: 0.66rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .bks-col-year {
+    color: color-mix(in srgb, var(--muted), transparent 35%);
+    font-size: 0.58rem;
+    line-height: 1;
+  }
+
+  .bks-month {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    margin: 18px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+  }
+
+  .bks-month:first-child {
+    margin-top: 0;
+  }
+
+  .bks-month b {
+    margin-left: auto;
+    color: var(--text);
+    font-size: 0.84rem;
+    letter-spacing: normal;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+  }
+
+  .bks-book {
+    position: relative;
+    display: grid;
+    gap: 8px;
+    padding: 14px 16px 12px 18px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--c), transparent 95%), transparent 70%),
+      var(--surface);
+    transition: transform 0.16s, border-color 0.16s;
+  }
+
+  .bks-book:hover {
+    border-color: color-mix(in srgb, var(--c), var(--line) 45%);
+    transform: translateY(-2px);
+  }
+
+  .bks-spine {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--c), transparent 30%), var(--c));
+  }
+
+  .bks-book-head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .bks-no {
+    color: color-mix(in srgb, var(--c), var(--muted) 45%);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bks-tag {
+    padding: 1px 7px;
+    border: 1px solid color-mix(in srgb, var(--c), transparent 62%);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--c), transparent 92%);
+    color: var(--c);
+    font-size: 0.66rem;
+    font-weight: 700;
+  }
+
+  .bks-name {
+    margin: 0;
+    font-size: 0.98rem;
+    font-weight: 700;
+    line-height: 1.4;
+    letter-spacing: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .bks-book-foot {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    justify-content: space-between;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bks-empty {
+    padding: 40px 0;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .bks-source {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .bks-source code {
+    color: var(--accent-strong);
+  }
+
+  @media (max-width: 700px) {
+    .bks-panel {
+      padding: 16px;
+    }
+
+    .bks-grid {
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+  }
+</style>
+
+<script>
+  type Entry = { id: number; t: string; s: string | null; d: string; st: string };
+
+  const YEAR_COLORS = ["#7d8fa6", "#2f6f73", "#c98a4b", "#7d68a6", "#b36179"];
+
+  const payload = JSON.parse(document.getElementById("bks-data")?.textContent ?? "{}") as {
+    stats: { latest: string | null };
+    entries: Entry[];
+  };
+
+  const entries = payload.entries;
+  const lastEl = document.getElementById("bks-last") as HTMLElement;
+  const presetsEl = document.getElementById("bks-presets") as HTMLElement;
+  const monthEl = document.getElementById("bks-month") as HTMLSelectElement;
+  const startEl = document.getElementById("bks-start") as HTMLInputElement;
+  const endEl = document.getElementById("bks-end") as HTMLInputElement;
+  const summaryEl = document.getElementById("bks-summary") as HTMLElement;
+  const statTotalEl = document.getElementById("bks-stat-total") as HTMLElement;
+  const statMonthsEl = document.getElementById("bks-stat-months") as HTMLElement;
+  const statPeakEl = document.getElementById("bks-stat-peak") as HTMLElement;
+  const statSpanEl = document.getElementById("bks-stat-span") as HTMLElement;
+  const chartTitleEl = document.getElementById("bks-chart-title") as HTMLElement;
+  const chartSubEl = document.getElementById("bks-chart-sub") as HTMLElement;
+  const chartEl = document.getElementById("bks-chart") as HTMLElement;
+  const chartMetaEl = document.getElementById("bks-chart-meta") as HTMLElement;
+  const shelfEl = document.getElementById("bks-shelf") as HTMLElement;
+  const shelfMetaEl = document.getElementById("bks-shelf-meta") as HTMLElement;
+
+  const pad = (value: string) => value.padStart(2, "0");
+  const toDate = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  };
+  const toISO = (date: Date) =>
+    `${date.getFullYear()}-${pad(String(date.getMonth() + 1))}-${pad(String(date.getDate()))}`;
+  const shiftDays = (value: string, delta: number) => {
+    const date = toDate(value);
+    date.setDate(date.getDate() + delta);
+    return toISO(date);
+  };
+  const monthEnd = (month: string) => {
+    const [year, index] = month.split("-").map(Number);
+    return toISO(new Date(year, index, 0));
+  };
+  const monthCount = (start: string, stop: string) => {
+    const [startYear, startMonth] = start.split("-").map(Number);
+    const [endYear, endMonth] = stop.split("-").map(Number);
+    return Math.max(1, (endYear - startYear) * 12 + (endMonth - startMonth) + 1);
+  };
+  const weekStart = (value: string) => shiftDays(value, -((toDate(value).getDay() + 6) % 7));
+  const today = toISO(new Date());
+
+  const allDates = entries.map(entry => entry.d).sort();
+  const minDate = allDates[0] ?? "";
+  const maxDate = allDates[allDates.length - 1] ?? "";
+  let rangeStart = `${today.slice(0, 7)}-01`;
+  let rangeEnd = monthEnd(today.slice(0, 7));
+  let activePreset: string | null = "month";
+
+  const rangeEntries = () => entries.filter(entry => entry.d >= rangeStart && entry.d <= rangeEnd);
+  const yearColor = (year: string) => {
+    const years = [...new Set(allDates.map(day => day.slice(0, 4)))].sort();
+    const index = years.indexOf(year);
+    return YEAR_COLORS[(index < 0 ? 0 : index) % YEAR_COLORS.length];
+  };
+
+  function renderLast() {
+    lastEl.innerHTML = `最近读完 · <b>${payload.stats.latest ?? "—"}</b>`;
+  }
+
+  function renderStats() {
+    const ranged = rangeEntries();
+    const buckets = new Map<string, number>();
+    for (const entry of ranged) {
+      const key = entry.d.slice(0, 7);
+      buckets.set(key, (buckets.get(key) ?? 0) + 1);
+    }
+
+    const months = rangeStart && rangeEnd ? monthCount(rangeStart, rangeEnd) : 0;
+    const peak = Math.max(...buckets.values(), 0);
+
+    statTotalEl.innerHTML = `${ranged.length}<small>本</small>`;
+    statMonthsEl.innerHTML = `${buckets.size}<small>个月</small>`;
+    statPeakEl.innerHTML = `${peak}<small>本</small>`;
+    statSpanEl.innerHTML = `${rangeStart ? rangeStart.slice(0, 7) : "—"} ~ ${rangeEnd ? rangeEnd.slice(0, 7) : "—"}<small>${months} 个月</small>`;
+  }
+
+  function renderSummary() {
+    const ranged = rangeEntries();
+    if (!ranged.length) {
+      summaryEl.innerHTML = `<b>${rangeStart}</b> ~ <b>${rangeEnd}</b> · 所选区间没有读完的书`;
+      return;
+    }
+
+    summaryEl.innerHTML = [
+      `<b>${rangeStart}</b> ~ <b>${rangeEnd}</b>`,
+      `共读完 <b>${ranged.length}</b> 本`,
+      `月均 <b>${(ranged.length / Math.max(1, monthCount(rangeStart, rangeEnd))).toFixed(1)}</b> 本`
+    ].join(" · ");
+  }
+
+  function renderChart() {
+    const ranged = rangeEntries();
+    // 区间本身只跨一个月时按天铺满，否则按月
+    const daily = monthCount(rangeStart, rangeEnd) <= 1;
+
+    chartTitleEl.textContent = daily ? "每日读完" : "阅读节奏";
+    chartSubEl.textContent = daily
+      ? "所选区间内每天读完的书本数"
+      : "每个月读完的书本数，按年份着色";
+
+    if (!ranged.length) {
+      chartEl.innerHTML = `<p class="bks-empty">暂无数据</p>`;
+      chartMetaEl.textContent = "—";
+      return;
+    }
+
+    const counts = new Map<string, number>();
+    const titles = new Map<string, string[]>();
+    for (const entry of ranged) {
+      const key = daily ? entry.d : entry.d.slice(0, 7);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      const list = titles.get(key) ?? [];
+      list.push(entry.t);
+      titles.set(key, list);
+    }
+
+    const keys: string[] = [];
+    if (daily) {
+      for (let cursor = rangeStart; cursor <= rangeEnd; cursor = shiftDays(cursor, 1)) keys.push(cursor);
+    } else {
+      let year = Number(rangeStart.slice(0, 4));
+      let month = Number(rangeStart.slice(5, 7));
+      const endYear = Number(rangeEnd.slice(0, 4));
+      const endMonth = Number(rangeEnd.slice(5, 7));
+      while (year < endYear || (year === endYear && month <= endMonth)) {
+        keys.push(`${year}-${pad(String(month))}`);
+        month += 1;
+        if (month > 12) {
+          month = 1;
+          year += 1;
+        }
+      }
+    }
+
+    const max = Math.max(...keys.map(key => counts.get(key) ?? 0), 1);
+
+    chartEl.innerHTML = keys
+      .map((key, index) => {
+        const count = counts.get(key) ?? 0;
+        const height = count ? Math.max(6, (count / max) * 100) : 0;
+        const color = yearColor(key.slice(0, 4));
+        const showYear = daily
+          ? index === 0
+          : index === 0 || key.slice(5, 7) === "01";
+        const list = titles.get(key) ?? [];
+        const tooltip = `${key} · ${count} 本${list.length ? ` · ${list.slice(0, 3).join("、")}${list.length > 3 ? ` 等 ${list.length} 本` : ""}` : ""}`;
+        return `<div class="bks-col" style="--yc:${color}" title="${tooltip}">
+          <div class="bks-col-bar${count ? "" : " is-empty"}" style="height:${height.toFixed(1)}%"></div>
+          <span class="bks-col-label">${daily ? key.slice(8, 10) : key.slice(5, 7)}</span>
+          <span class="bks-col-year">${showYear ? (daily ? key.slice(0, 7) : key.slice(0, 4)) : ""}</span>
+        </div>`;
+      })
+      .join("");
+
+    const peakKey = keys.reduce((best, key) => ((counts.get(key) ?? 0) > (counts.get(best) ?? 0) ? key : best));
+    chartMetaEl.textContent = `峰值 ${daily ? peakKey.slice(5) : peakKey} · ${counts.get(peakKey) ?? 0} 本 · ${keys.length} ${daily ? "天" : "个月"}`;
+  }
+
+  function renderShelf() {
+    const ranged = rangeEntries();
+    if (!ranged.length) {
+      shelfEl.innerHTML = `<p class="bks-empty">所选区间还没有读完的书。</p>`;
+      shelfMetaEl.textContent = "—";
+      return;
+    }
+
+    const groups = new Map<string, Entry[]>();
+    for (const entry of ranged) {
+      const month = entry.d.slice(0, 7);
+      const list = groups.get(month) ?? [];
+      list.push(entry);
+      groups.set(month, list);
+    }
+
+    const months = [...groups.keys()].sort().reverse();
+    shelfEl.innerHTML = months
+      .map(month => {
+        const list = (groups.get(month) ?? []).sort((a, b) => b.d.localeCompare(a.d));
+        const cards = list
+          .map((entry, index) => {
+            const color = yearColor(entry.d.slice(0, 4));
+            return `<article class="bks-book" style="--c:${color}">
+              <span class="bks-spine"></span>
+              <div class="bks-book-head">
+                <span class="bks-no">NO.${String(list.length - index).padStart(2, "0")}</span>
+                <span class="bks-tag">${entry.st}</span>
+              </div>
+              <h3 class="bks-name" title="${entry.t.replace(/</g, "&lt;")}">${entry.t.replace(/</g, "&lt;")}</h3>
+              <div class="bks-book-foot">
+                <span>${entry.d}</span>
+                <span>#${entry.id}</span>
+              </div>
+            </article>`;
+          })
+          .join("");
+        return `<div class="bks-month"><span>${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</span><b>${list.length} 本</b></div>
+          <div class="bks-grid">${cards}</div>`;
+      })
+      .join("");
+
+    shelfMetaEl.textContent = `${months.length} 个月 · 共 ${ranged.length} 本`;
+  }
+
+  function syncInputs() {
+    startEl.value = rangeStart;
+    endEl.value = rangeEnd;
+
+    const wholeMonth =
+      rangeStart &&
+      rangeEnd &&
+      rangeStart.slice(0, 7) === rangeEnd.slice(0, 7) &&
+      rangeStart.endsWith("-01") &&
+      rangeEnd === monthEnd(rangeStart.slice(0, 7));
+    monthEl.value = wholeMonth ? rangeStart.slice(0, 7) : "all";
+
+    for (const button of presetsEl.querySelectorAll<HTMLButtonElement>("button")) {
+      button.setAttribute("aria-pressed", String(button.dataset.preset === activePreset));
+    }
+  }
+
+  function renderMonths() {
+    const months = [...new Set([...entries.map(entry => entry.d.slice(0, 7)), today.slice(0, 7)])].sort().reverse();
+    monthEl.innerHTML =
+      `<option value="all">全部</option>` +
+      months
+        .map(month => `<option value="${month}">${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</option>`)
+        .join("");
+  }
+
+  function renderAll() {
+    renderStats();
+    renderSummary();
+    renderChart();
+    renderShelf();
+  }
+
+  function applyPreset(key: string) {
+    activePreset = key;
+    if (key === "week") {
+      rangeStart = weekStart(today);
+      rangeEnd = shiftDays(rangeStart, 6);
+    } else if (key === "last7") {
+      rangeStart = shiftDays(maxDate, -6);
+      rangeEnd = maxDate;
+    } else if (key === "last30") {
+      rangeStart = shiftDays(maxDate, -29);
+      rangeEnd = maxDate;
+    } else if (key === "month") {
+      rangeStart = `${today.slice(0, 7)}-01`;
+      rangeEnd = monthEnd(today.slice(0, 7));
+    } else if (key === "year") {
+      rangeStart = `${today.slice(0, 4)}-01-01`;
+      rangeEnd = today;
+    } else {
+      rangeStart = minDate;
+      rangeEnd = maxDate;
+    }
+
+    syncInputs();
+    renderAll();
+  }
+
+  presetsEl.addEventListener("click", event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-preset]");
+    if (button?.dataset.preset) applyPreset(button.dataset.preset);
+  });
+
+  monthEl.addEventListener("change", () => {
+    const value = monthEl.value;
+    if (value === "all") {
+      rangeStart = minDate;
+      rangeEnd = maxDate;
+      activePreset = null;
+    } else {
+      rangeStart = `${value}-01`;
+      rangeEnd = monthEnd(value);
+      activePreset = value === today.slice(0, 7) ? "month" : null;
+    }
+    syncInputs();
+    renderAll();
+  });
+
+  const onDateChange = () => {
+    let start = startEl.value || minDate;
+    let stop = endEl.value || maxDate;
+    if (start > stop) [start, stop] = [stop, start];
+    rangeStart = start;
+    rangeEnd = stop;
+    activePreset = null;
+    syncInputs();
+    renderAll();
+  };
+
+  startEl.addEventListener("change", onDateChange);
+  endEl.addEventListener("change", onDateChange);
+
+  renderLast();
+  renderMonths();
+  applyPreset("month");
+</script>

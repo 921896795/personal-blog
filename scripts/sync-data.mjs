@@ -6,6 +6,7 @@
  *   dty_quarter_okr     -> public/data/quarter-okr.json
  *   dty_daily_expense_v2 -> public/data/daily-expense.json
  *   dty_exercise        -> public/data/exercise.json
+ *   dty_books           -> public/data/books.json
  *
  * 用法：
  *   node scripts/sync-data.mjs            # 缺少配置时跳过，保留现有快照（供构建使用）
@@ -262,6 +263,40 @@ try {
       end: exerciseDates[exerciseDates.length - 1] ?? null
     },
     entries: exerciseEntries
+  });
+
+  // ---------------------------------------------------------------- 读书
+  const [bookRows] = await connection.query(
+    `SELECT id, title, status,
+            DATE_FORMAT(start_date, '%Y-%m-%d') AS start,
+            DATE_FORMAT(finish_date, '%Y-%m-%d') AS finish
+       FROM dty_books
+      ORDER BY finish_date DESC, id ASC`
+  );
+
+  const bookEntries = bookRows
+    .filter(row => row.finish)
+    .map(row => ({
+      id: row.id,
+      t: row.title,
+      s: row.start ?? null,
+      d: row.finish,
+      st: row.status ?? "已完成"
+    }));
+
+  const bookDates = bookEntries.map(entry => entry.d).sort();
+
+  writeSnapshot("books.json", {
+    syncedAt: new Date().toISOString(),
+    stats: {
+      total: bookEntries.length,
+      months: new Set(bookDates.map(day => day.slice(0, 7))).size,
+      years: new Set(bookDates.map(day => day.slice(0, 4))).size,
+      start: bookDates[0] ?? null,
+      end: bookDates[bookDates.length - 1] ?? null,
+      latest: bookEntries[0]?.t ?? null
+    },
+    entries: bookEntries
   });
 } catch (error) {
   fallback(`连接或查询失败：${error.message}`);

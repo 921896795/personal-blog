@@ -43,7 +43,6 @@ const syncedLabel = data.syncedAt
     }).format(new Date(data.syncedAt))
   : "—";
 
-const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort().reverse();
 ---
 
 <BaseLayout title="每日时间" description="每天的时间都去了哪里的可视化账本">
@@ -72,6 +71,37 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
     </dl>
   </section>
 
+  <section class="container">
+    <div class="fb-range-bar">
+      <div class="fb-chips" id="fb-presets" role="group" aria-label="时间范围">
+        <button type="button" data-preset="last7" aria-pressed="false">近 7 天</button>
+        <button type="button" data-preset="last30" aria-pressed="true">近 30 天</button>
+        <button type="button" data-preset="month" aria-pressed="false">本月</button>
+        <button type="button" data-preset="year" aria-pressed="false">本年</button>
+        <button type="button" data-preset="all" aria-pressed="false">全部</button>
+      </div>
+
+      <div class="fb-pickers">
+        <label>
+          月份
+          <select id="fb-month">
+            <option value="all">全部</option>
+          </select>
+        </label>
+        <label>
+          起
+          <input type="date" id="fb-start" />
+        </label>
+        <label>
+          止
+          <input type="date" id="fb-end" />
+        </label>
+      </div>
+    </div>
+
+    <p class="fb-range-summary" id="fb-range-summary">—</p>
+  </section>
+
   <section class="container fb-panel-wrap">
     <div class="fb-panel">
       <header class="fb-panel-head">
@@ -88,11 +118,6 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
   </section>
 
   <section class="container">
-    <div class="fb-controls">
-      <div class="fb-chips" id="fb-years" role="group" aria-label="按年份筛选"></div>
-      <span class="fb-count" id="fb-count"></span>
-    </div>
-
     <div class="fb-days" id="fb-days">
       <p class="fb-empty">正在载入…</p>
     </div>
@@ -321,13 +346,59 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
     font-weight: 700;
   }
 
-  .fb-controls {
+  .fb-range-bar {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 12px 20px;
     align-items: center;
-    justify-content: space-between;
-    margin: 30px 0 16px;
+    margin: 22px 0 10px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .fb-pickers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-left: auto;
+  }
+
+  .fb-pickers label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .fb-pickers select,
+  .fb-pickers input {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--surface-strong);
+    color: var(--text);
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fb-pickers select:focus,
+  .fb-pickers input:focus {
+    outline: 2px solid color-mix(in srgb, var(--accent), transparent 55%);
+    outline-offset: 1px;
+  }
+
+  .fb-range-summary {
+    margin: 0 0 16px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fb-range-summary b {
+    color: var(--text);
   }
 
   .fb-chips {
@@ -358,12 +429,6 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
     background: var(--accent);
     color: var(--surface-strong);
     font-weight: 700;
-  }
-
-  .fb-count {
-    color: var(--muted);
-    font-size: 0.84rem;
-    font-variant-numeric: tabular-nums;
   }
 
   .fb-days {
@@ -625,12 +690,21 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
   const legendEl = document.getElementById("fb-legend") as HTMLElement;
   const stackedEl = document.getElementById("fb-stacked") as HTMLElement;
   const rangeEl = document.getElementById("fb-range") as HTMLElement;
-  const yearsEl = document.getElementById("fb-years") as HTMLElement;
-  const countEl = document.getElementById("fb-count") as HTMLElement;
+  const presetsEl = document.getElementById("fb-presets") as HTMLElement;
+  const monthEl = document.getElementById("fb-month") as HTMLSelectElement;
+  const startEl = document.getElementById("fb-start") as HTMLInputElement;
+  const endEl = document.getElementById("fb-end") as HTMLInputElement;
+  const summaryEl = document.getElementById("fb-range-summary") as HTMLElement;
   const daysEl = document.getElementById("fb-days") as HTMLElement;
   const moreBtn = document.getElementById("fb-more") as HTMLButtonElement;
 
-  let activeYear = "all";
+  const allDates = entries.map(entry => entry.d).sort();
+  const minDate = allDates[0] ?? "";
+  const maxDate = allDates[allDates.length - 1] ?? "";
+
+  let rangeStart = minDate;
+  let rangeEnd = maxDate;
+  let activePreset: string | null = "last30";
   let limit = PAGE_SIZE;
   const hidden = new Set<string>();
 
@@ -638,8 +712,71 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
   const fmt = (value: number) => (Math.round(value * 10) / 10).toString().replace(/\.0$/, "");
   const pad = (value: string) => value.padStart(2, "0");
 
+  const toDate = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  };
+  const toISO = (date: Date) =>
+    `${date.getFullYear()}-${pad(String(date.getMonth() + 1))}-${pad(String(date.getDate()))}`;
+  const shiftDays = (value: string, delta: number) => {
+    const date = toDate(value);
+    date.setDate(date.getDate() + delta);
+    return toISO(date);
+  };
+  const monthEnd = (month: string) => {
+    const [year, index] = month.split("-").map(Number);
+    return toISO(new Date(year, index, 0));
+  };
+
   function filtered() {
-    return activeYear === "all" ? entries : entries.filter(entry => entry.d.startsWith(activeYear));
+    return entries.filter(entry => entry.d >= rangeStart && entry.d <= rangeEnd);
+  }
+
+  function syncInputs() {
+    startEl.value = rangeStart;
+    endEl.value = rangeEnd;
+
+    const sameMonth = rangeStart.slice(0, 7) === rangeEnd.slice(0, 7);
+    const wholeMonth = sameMonth && rangeStart.endsWith("-01") && rangeEnd === monthEnd(rangeStart.slice(0, 7));
+    monthEl.value = wholeMonth ? rangeStart.slice(0, 7) : "all";
+
+    presetsEl.querySelectorAll<HTMLButtonElement>("button").forEach(button => {
+      button.setAttribute("aria-pressed", String(button.dataset.preset === activePreset));
+    });
+  }
+
+  function applyPreset(key: string) {
+    activePreset = key;
+
+    if (key === "last7") {
+      rangeStart = shiftDays(maxDate, -6);
+      rangeEnd = maxDate;
+    } else if (key === "last30") {
+      rangeStart = shiftDays(maxDate, -29);
+      rangeEnd = maxDate;
+    } else if (key === "month") {
+      rangeStart = `${maxDate.slice(0, 7)}-01`;
+      rangeEnd = monthEnd(maxDate.slice(0, 7));
+    } else if (key === "year") {
+      rangeStart = `${maxDate.slice(0, 4)}-01-01`;
+      rangeEnd = maxDate;
+    } else {
+      rangeStart = minDate;
+      rangeEnd = maxDate;
+    }
+
+    limit = PAGE_SIZE;
+    syncInputs();
+    renderAll();
+  }
+
+  function renderSummary() {
+    const list = filtered();
+    const hours = list.reduce((total, entry) => total + sum(entry), 0);
+
+    summaryEl.innerHTML = list.length
+      ? `<b>${rangeStart}</b> ~ <b>${rangeEnd}</b> · 共 <b>${list.length}</b> 天 · 合计 <b>${fmt(hours)}</b> 小时 · 日均 <b>${(hours / list.length).toFixed(1)}</b> 小时`
+      : `<b>${rangeStart}</b> ~ <b>${rangeEnd}</b> · 所选区间没有记录`;
   }
 
   function renderLegendAndBar() {
@@ -681,7 +818,6 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
 
     if (!visible.length) {
       daysEl.innerHTML = `<p class="fb-empty">这个筛选下还没有记录。</p>`;
-      countEl.textContent = "共 0 天";
       moreBtn.hidden = true;
       return;
     }
@@ -698,6 +834,8 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
 
         const date = new Date(Number(entry.d.slice(0, 4)), Number(entry.d.slice(5, 7)) - 1, Number(entry.d.slice(8, 10)));
         const total = sum(entry);
+        // 跨年份区间时日期副标题里带上年份，避免误读
+        const showYear = rangeStart.slice(0, 4) !== rangeEnd.slice(0, 4);
 
         const segments = categories
           .map((key, index) => {
@@ -730,7 +868,7 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
           <article class="fb-day">
             <div class="fb-date">
               <b>${pad(entry.d.slice(5, 7))}-${pad(entry.d.slice(8, 10))}</b>
-              <span>${activeYear === "all" ? entry.d.slice(0, 4) + " · " : ""}周${WEEKDAYS[date.getDay()]}</span>
+              <span>${showYear ? entry.d.slice(0, 4) + " · " : ""}周${WEEKDAYS[date.getDay()]}</span>
             </div>
             <div class="fb-main">
               <div class="fb-bar">${segments}${restSpan}</div>
@@ -743,36 +881,57 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
       .join("");
 
     daysEl.innerHTML = html;
-    countEl.textContent = `共 ${list.length} 天`;
     moreBtn.hidden = limit >= list.length;
   }
 
   function renderAll() {
+    renderSummary();
     renderLegendAndBar();
     renderList();
   }
 
-  function renderYears() {
-    const years = [...new Set(entries.map(entry => entry.d.slice(0, 4)))].sort().reverse();
-    const items = [["all", "全部"], ...years.map(year => [year, year])];
-    yearsEl.innerHTML = items
-      .map(
-        ([value, label]) =>
-          `<button type="button" data-year="${value}" aria-pressed="${String(value === activeYear)}">${label}</button>`
-      )
-      .join("");
+  function renderMonths() {
+    const months = [...new Set(entries.map(entry => entry.d.slice(0, 7)))].sort().reverse();
+    monthEl.innerHTML = [
+      `<option value="all">全部</option>`,
+      ...months.map(month => `<option value="${month}">${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</option>`)
+    ].join("");
   }
 
-  yearsEl.addEventListener("click", event => {
-    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-year]");
+  presetsEl.addEventListener("click", event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-preset]");
     if (!button) return;
-    activeYear = button.dataset.year ?? "all";
+    applyPreset(button.dataset.preset ?? "last30");
+  });
+
+  monthEl.addEventListener("change", () => {
+    const month = monthEl.value;
+    if (month === "all") {
+      activePreset = null;
+      applyPreset("all");
+      return;
+    }
+    activePreset = month === maxDate.slice(0, 7) ? "month" : null;
+    rangeStart = `${month}-01`;
+    rangeEnd = monthEnd(month);
     limit = PAGE_SIZE;
-    yearsEl.querySelectorAll<HTMLButtonElement>("button").forEach(other => {
-      other.setAttribute("aria-pressed", String(other === button));
-    });
+    syncInputs();
     renderAll();
   });
+
+  const onDateChange = () => {
+    const start = startEl.value || minDate;
+    const end = endEl.value || maxDate;
+    rangeStart = start <= end ? start : end;
+    rangeEnd = start <= end ? end : start;
+    activePreset = null;
+    limit = PAGE_SIZE;
+    syncInputs();
+    renderAll();
+  };
+
+  startEl.addEventListener("change", onDateChange);
+  endEl.addEventListener("change", onDateChange);
 
   legendEl.addEventListener("click", event => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-cat]");
@@ -788,6 +947,6 @@ const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort(
     renderList();
   });
 
-  renderYears();
-  renderAll();
+  renderMonths();
+  applyPreset("last30");
 </script>

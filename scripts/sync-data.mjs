@@ -7,6 +7,7 @@
  *   dty_daily_expense_v2 -> public/data/daily-expense.json
  *   dty_exercise        -> public/data/exercise.json
  *   dty_books           -> public/data/books.json
+ *   dty_movies          -> public/data/movies.json
  *
  * 用法：
  *   node scripts/sync-data.mjs            # 缺少配置时跳过，保留现有快照（供构建使用）
@@ -297,6 +298,39 @@ try {
       latest: bookEntries[0]?.t ?? null
     },
     entries: bookEntries
+  });
+
+  // ---------------------------------------------------------------- 影视
+  const [movieRows] = await connection.query(
+    `SELECT id, title, type, status,
+            DATE_FORMAT(watch_date, '%Y-%m-%d') AS day
+       FROM dty_movies
+      WHERE watch_date IS NOT NULL
+      ORDER BY watch_date DESC, id ASC`
+  );
+
+  const movieEntries = movieRows.map(row => ({
+    id: row.id,
+    t: row.title,
+    ty: row.type,
+    st: row.status ?? "看完",
+    d: row.day
+  }));
+
+  const movieDates = movieEntries.map(entry => entry.d).sort();
+
+  writeSnapshot("movies.json", {
+    syncedAt: new Date().toISOString(),
+    stats: {
+      total: movieEntries.length,
+      movies: movieEntries.filter(entry => entry.ty === "电影").length,
+      tv: movieEntries.filter(entry => entry.ty === "电视剧").length,
+      months: new Set(movieDates.map(day => day.slice(0, 7))).size,
+      start: movieDates[0] ?? null,
+      end: movieDates[movieDates.length - 1] ?? null,
+      latest: movieEntries[0]?.t ?? null
+    },
+    entries: movieEntries
   });
 } catch (error) {
   fallback(`连接或查询失败：${error.message}`);

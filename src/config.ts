@@ -19,7 +19,8 @@ export const NAV_LINKS = [
   { href: "/dty_quarter_okr/", label: "OKR" },
   { href: "/dty_daily_expense_v2/", label: "支出" },
   { href: "/dty_exercise/", label: "运动" },
-  { href: "/dty_books/", label: "读书" }
+  { href: "/dty_books/", label: "读书" },
+  { href: "/dty_movie/", label: "影视" }
 ];
 
 export const SOCIAL_LINKS = [

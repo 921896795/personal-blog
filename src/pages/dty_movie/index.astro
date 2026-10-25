@@ -1,0 +1,984 @@
+---
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import BaseLayout from "@/layouts/BaseLayout.astro";
+
+type Entry = { id: number; t: string; ty: string; st: string; d: string };
+type Payload = {
+  syncedAt: string;
+  stats: {
+    total: number;
+    movies: number;
+    tv: number;
+    months: number;
+    start: string | null;
+    end: string | null;
+    latest: string | null;
+  };
+  entries: Entry[];
+};
+
+const dataPath = resolve(process.cwd(), "public/data/movies.json");
+const data: Payload = existsSync(dataPath)
+  ? JSON.parse(readFileSync(dataPath, "utf8"))
+  : {
+      syncedAt: "",
+      stats: { total: 0, movies: 0, tv: 0, months: 0, start: null, end: null, latest: null },
+      entries: []
+    };
+
+// 首屏按默认区间（当前自然月）渲染，与客户端初始筛选一致
+const now = new Date();
+const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+const initialStart = `${currentMonth}-01`;
+const initialEnd = (() => {
+  const [year, index] = currentMonth.split("-").map(Number);
+  const last = new Date(year, index, 0);
+  return `${year}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
+})();
+const initialEntries = data.entries.filter(entry => entry.d >= initialStart && entry.d <= initialEnd);
+const initialSpan = `${currentMonth} ~ ${currentMonth}`;
+
+const syncedLabel = data.syncedAt
+  ? new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(data.syncedAt))
+  : "—";
+---
+
+<BaseLayout title="影视" description="按观看时间记录的电影与电视剧">
+  <section class="container mv-hero">
+    <p class="eyebrow">Screen Log</p>
+    <h1 class="mv-title">影视</h1>
+    <p class="lead mv-lead">看过的电影和电视剧，一部一部攒起来。</p>
+    <p class="mv-last" id="mv-last">
+      最近观看 · <b>{data.stats.latest ?? "—"}</b>
+    </p>
+
+    <dl class="mv-stats">
+      <div>
+        <dt>观看总数</dt>
+        <dd id="mv-stat-total">{initialEntries.length}<small>部</small></dd>
+      </div>
+      <div>
+        <dt>电影</dt>
+        <dd id="mv-stat-movie">{initialEntries.filter(entry => entry.ty === "电影").length}<small>部</small></dd>
+      </div>
+      <div>
+        <dt>电视剧</dt>
+        <dd id="mv-stat-tv">{initialEntries.filter(entry => entry.ty === "电视剧").length}<small>部</small></dd>
+      </div>
+      <div>
+        <dt>记录跨度</dt>
+        <dd class="mv-span" id="mv-stat-span">{initialSpan}<small>1 个月</small></dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="container">
+    <div class="mv-range-bar">
+      <div class="mv-chips" id="mv-presets" role="group" aria-label="时间范围">
+        <button type="button" data-preset="week" aria-pressed="false">本周</button>
+        <button type="button" data-preset="last7" aria-pressed="false">近 7 天</button>
+        <button type="button" data-preset="last30" aria-pressed="false">近 30 天</button>
+        <button type="button" data-preset="month" aria-pressed="true">本月</button>
+        <button type="button" data-preset="year" aria-pressed="false">本年</button>
+        <button type="button" data-preset="all" aria-pressed="false">全部</button>
+      </div>
+
+      <div class="mv-pickers">
+        <label>
+          月份
+          <select id="mv-month">
+            <option value="all">全部</option>
+          </select>
+        </label>
+        <label>
+          起
+          <input type="date" id="mv-start" />
+        </label>
+        <label>
+          止
+          <input type="date" id="mv-end" />
+        </label>
+      </div>
+    </div>
+
+    <p class="mv-summary" id="mv-summary">—</p>
+  </section>
+
+  <section class="container mv-panel-wrap">
+    <div class="mv-panel">
+      <header class="mv-panel-head">
+        <div>
+          <h2 id="mv-chart-title">观影节奏</h2>
+          <p class="muted" id="mv-chart-sub">每个月的观看数量，按类型堆叠</p>
+        </div>
+        <div class="mv-aside">
+          <span class="mv-legend"><i class="mv-dot mv-dot-movie"></i>电影<i class="mv-dot mv-dot-tv"></i>电视剧</span>
+          <span class="mv-meta" id="mv-chart-meta">—</span>
+        </div>
+      </header>
+      <div class="mv-chart-wrap">
+        <div class="mv-chart" id="mv-chart"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="container mv-panel-wrap">
+    <div class="mv-panel">
+      <header class="mv-panel-head">
+        <div>
+          <h2>观影记录</h2>
+          <p class="muted">按观看月份分组，左侧色条区分类型</p>
+        </div>
+        <span class="mv-meta" id="mv-list-meta">—</span>
+      </header>
+      <div class="mv-list" id="mv-list">
+        <p class="mv-empty">正在载入…</p>
+      </div>
+      <div class="mv-more">
+        <button type="button" id="mv-more" hidden>加载更多</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="container">
+    <p class="mv-source">
+      数据来源：MySQL 表 <code>dty_movies</code> · 最近同步 {syncedLabel}
+    </p>
+  </section>
+</BaseLayout>
+
+<script type="application/json" id="mv-data" set:html={JSON.stringify(data).replace(/</g, "\\u003c")}></script>
+
+<style is:global>
+  .mv-hero {
+    padding-bottom: 10px;
+  }
+
+  .mv-title {
+    font-size: clamp(2.6rem, 9vw, 5rem);
+    letter-spacing: -0.02em;
+  }
+
+  .mv-lead {
+    margin-top: 14px;
+  }
+
+  .mv-last {
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+    margin: 16px 0 0;
+    padding: 5px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent), transparent 93%);
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+
+  .mv-last b {
+    color: var(--accent-strong);
+    font-weight: 700;
+  }
+
+  .mv-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin: 24px 0 0;
+    padding: 0;
+  }
+
+  .mv-stats div {
+    position: relative;
+    display: grid;
+    gap: 2px;
+    padding: 14px 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .mv-stats div::after {
+    content: "";
+    position: absolute;
+    inset: auto -30% -60% auto;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent), transparent 80%), transparent 70%);
+  }
+
+  .mv-stats dt {
+    color: var(--muted);
+    font-size: 0.76rem;
+    letter-spacing: 0.16em;
+  }
+
+  .mv-stats dd {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+  }
+
+  .mv-stats dd small {
+    margin-left: 5px;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .mv-stats .mv-span {
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .mv-range-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    align-items: center;
+    margin: 24px 0 10px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .mv-pickers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-left: auto;
+  }
+
+  .mv-pickers label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .mv-pickers select,
+  .mv-pickers input {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--surface-strong);
+    color: var(--text);
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mv-pickers select:focus,
+  .mv-pickers input:focus {
+    outline: 2px solid color-mix(in srgb, var(--accent), transparent 55%);
+    outline-offset: 1px;
+  }
+
+  .mv-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .mv-chips button {
+    padding: 6px 15px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+
+  .mv-chips button:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .mv-chips button[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--surface-strong);
+    font-weight: 700;
+  }
+
+  .mv-summary {
+    margin: 0 0 16px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mv-summary b {
+    color: var(--text);
+  }
+
+  .mv-panel-wrap {
+    margin-bottom: 16px;
+  }
+
+  .mv-panel {
+    padding: 20px 22px 22px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background:
+      radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent), transparent 93%), transparent 55%),
+      var(--surface);
+  }
+
+  .mv-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .mv-panel-head h2 {
+    margin: 0 0 4px;
+    font-size: 1.15rem;
+  }
+
+  .mv-panel-head p {
+    margin: 0;
+    font-size: 0.84rem;
+  }
+
+  .mv-aside {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    align-items: center;
+  }
+
+  .mv-legend {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.76rem;
+  }
+
+  .mv-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+
+  .mv-dot-movie {
+    background: #2f6f73;
+  }
+
+  .mv-dot-tv {
+    background: #5f7fa8;
+    margin-left: 4px;
+  }
+
+  .mv-meta {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .mv-chart-wrap {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .mv-chart {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+    min-height: 156px;
+    padding-top: 8px;
+  }
+
+  .mv-col {
+    display: flex;
+    flex: 1 0 24px;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 24px;
+    height: 148px;
+    text-align: center;
+  }
+
+  .mv-col-bar {
+    display: flex;
+    flex-direction: column-reverse;
+    width: 100%;
+    min-height: 2px;
+    overflow: hidden;
+    border-radius: 5px 5px 2px 2px;
+    transition: filter 0.15s, height 0.2s;
+  }
+
+  .mv-col-bar.is-empty {
+    background: color-mix(in srgb, var(--line), transparent 15%);
+  }
+
+  .mv-col:hover .mv-col-bar {
+    filter: saturate(1.2) brightness(1.05);
+  }
+
+  .mv-seg {
+    display: block;
+    width: 100%;
+    flex-basis: 0;
+  }
+
+  .mv-seg-movie {
+    background: #2f6f73;
+  }
+
+  .mv-seg-tv {
+    background: #5f7fa8;
+  }
+
+  .mv-col-label {
+    color: var(--muted);
+    font-size: 0.66rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .mv-col-year {
+    color: color-mix(in srgb, var(--muted), transparent 35%);
+    font-size: 0.58rem;
+    line-height: 1;
+  }
+
+  .mv-list {
+    display: grid;
+    gap: 0;
+  }
+
+  .mv-month {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    margin: 16px 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+  }
+
+  .mv-month:first-child {
+    margin-top: 0;
+  }
+
+  .mv-month b {
+    margin-left: auto;
+    color: var(--text);
+    font-size: 0.84rem;
+    letter-spacing: normal;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mv-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 58px 72px minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 4px 10px 14px;
+    border-bottom: 1px solid color-mix(in srgb, var(--line), transparent 55%);
+    transition: background 0.15s;
+  }
+
+  .mv-item::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--c);
+    opacity: 0.7;
+  }
+
+  .mv-item:hover {
+    background: color-mix(in srgb, var(--accent), transparent 95%);
+  }
+
+  .mv-date {
+    display: grid;
+    gap: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mv-date b {
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+
+  .mv-date span {
+    color: var(--muted);
+    font-size: 0.66rem;
+  }
+
+  .mv-tag {
+    justify-self: start;
+    padding: 2px 9px;
+    border: 1px solid color-mix(in srgb, var(--c), transparent 58%);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--c), transparent 91%);
+    color: var(--c);
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .mv-name {
+    margin: 0;
+    overflow: hidden;
+    font-size: 0.96rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mv-status {
+    color: var(--muted);
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+
+  .mv-more {
+    display: flex;
+    justify-content: center;
+    margin-top: 16px;
+  }
+
+  .mv-more button {
+    padding: 7px 24px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.86rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .mv-more button:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .mv-more button[hidden] {
+    display: none;
+  }
+
+  .mv-empty {
+    padding: 40px 0;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .mv-source {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .mv-source code {
+    color: var(--accent-strong);
+  }
+
+  @media (max-width: 700px) {
+    .mv-panel {
+      padding: 16px;
+    }
+
+    .mv-item {
+      grid-template-columns: 54px minmax(0, 1fr) auto;
+      grid-template-areas:
+        "date name status"
+        "date tag status";
+      gap: 3px 10px;
+      padding: 10px 4px 10px 12px;
+    }
+
+    .mv-date {
+      grid-area: date;
+    }
+
+    .mv-tag {
+      grid-area: tag;
+    }
+
+    .mv-name {
+      grid-area: name;
+    }
+
+    .mv-status {
+      grid-area: status;
+    }
+  }
+</style>
+
+<script>
+  type Entry = { id: number; t: string; ty: string; st: string; d: string };
+
+  const TYPE_COLORS: Record<string, string> = {
+    电影: "#2f6f73",
+    电视剧: "#5f7fa8"
+  };
+  const YEAR_COLORS = ["#7d8fa6", "#2f6f73", "#c98a4b", "#7d68a6", "#b36179"];
+  const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+  const PAGE = 60;
+
+  const payload = JSON.parse(document.getElementById("mv-data")?.textContent ?? "{}") as {
+    stats: { latest: string | null };
+    entries: Entry[];
+  };
+
+  const entries = payload.entries;
+  const lastEl = document.getElementById("mv-last") as HTMLElement;
+  const presetsEl = document.getElementById("mv-presets") as HTMLElement;
+  const monthEl = document.getElementById("mv-month") as HTMLSelectElement;
+  const startEl = document.getElementById("mv-start") as HTMLInputElement;
+  const endEl = document.getElementById("mv-end") as HTMLInputElement;
+  const summaryEl = document.getElementById("mv-summary") as HTMLElement;
+  const statTotalEl = document.getElementById("mv-stat-total") as HTMLElement;
+  const statMovieEl = document.getElementById("mv-stat-movie") as HTMLElement;
+  const statTvEl = document.getElementById("mv-stat-tv") as HTMLElement;
+  const statSpanEl = document.getElementById("mv-stat-span") as HTMLElement;
+  const chartTitleEl = document.getElementById("mv-chart-title") as HTMLElement;
+  const chartSubEl = document.getElementById("mv-chart-sub") as HTMLElement;
+  const chartEl = document.getElementById("mv-chart") as HTMLElement;
+  const chartMetaEl = document.getElementById("mv-chart-meta") as HTMLElement;
+  const listEl = document.getElementById("mv-list") as HTMLElement;
+  const listMetaEl = document.getElementById("mv-list-meta") as HTMLElement;
+  const moreEl = document.getElementById("mv-more") as HTMLButtonElement;
+
+  const pad = (value: string) => value.padStart(2, "0");
+  const toDate = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  };
+  const toISO = (date: Date) =>
+    `${date.getFullYear()}-${pad(String(date.getMonth() + 1))}-${pad(String(date.getDate()))}`;
+  const shiftDays = (value: string, delta: number) => {
+    const date = toDate(value);
+    date.setDate(date.getDate() + delta);
+    return toISO(date);
+  };
+  const monthEnd = (month: string) => {
+    const [year, index] = month.split("-").map(Number);
+    return toISO(new Date(year, index, 0));
+  };
+  const monthCount = (start: string, stop: string) => {
+    const [startYear, startMonth] = start.split("-").map(Number);
+    const [endYear, endMonth] = stop.split("-").map(Number);
+    return Math.max(1, (endYear - startYear) * 12 + (endMonth - startMonth) + 1);
+  };
+  const weekStart = (value: string) => shiftDays(value, -((toDate(value).getDay() + 6) % 7));
+  const today = toISO(new Date());
+
+  const allDates = entries.map(entry => entry.d).sort();
+  const minDate = allDates[0] ?? "";
+  const maxDate = allDates[allDates.length - 1] ?? "";
+  let rangeStart = `${today.slice(0, 7)}-01`;
+  let rangeEnd = monthEnd(today.slice(0, 7));
+  let activePreset: string | null = "month";
+  let visible = PAGE;
+
+  const rangeEntries = () => entries.filter(entry => entry.d >= rangeStart && entry.d <= rangeEnd);
+  const yearColor = (year: string) => {
+    const years = [...new Set(allDates.map(day => day.slice(0, 4)))].sort();
+    const index = years.indexOf(year);
+    return YEAR_COLORS[(index < 0 ? 0 : index) % YEAR_COLORS.length];
+  };
+  const typeColor = (type: string) => TYPE_COLORS[type] ?? "#918577";
+
+  function renderLast() {
+    lastEl.innerHTML = `最近观看 · <b>${payload.stats.latest ?? "—"}</b>`;
+  }
+
+  function renderStats() {
+    const ranged = rangeEntries();
+    const movies = ranged.filter(entry => entry.ty === "电影").length;
+    const tv = ranged.filter(entry => entry.ty === "电视剧").length;
+    const months = rangeStart && rangeEnd ? monthCount(rangeStart, rangeEnd) : 0;
+
+    statTotalEl.innerHTML = `${ranged.length}<small>部</small>`;
+    statMovieEl.innerHTML = `${movies}<small>部</small>`;
+    statTvEl.innerHTML = `${tv}<small>部</small>`;
+    statSpanEl.innerHTML = `${rangeStart ? rangeStart.slice(0, 7) : "—"} ~ ${rangeEnd ? rangeEnd.slice(0, 7) : "—"}<small>${months} 个月</small>`;
+  }
+
+  function renderSummary() {
+    const ranged = rangeEntries();
+    if (!ranged.length) {
+      summaryEl.innerHTML = `<b>${rangeStart}</b> ~ <b>${rangeEnd}</b> · 所选区间没有观看记录`;
+      return;
+    }
+
+    const movies = ranged.filter(entry => entry.ty === "电影").length;
+    const tv = ranged.filter(entry => entry.ty === "电视剧").length;
+    summaryEl.innerHTML = [
+      `<b>${rangeStart}</b> ~ <b>${rangeEnd}</b>`,
+      `共 <b>${ranged.length}</b> 部`,
+      movies ? `电影 <b>${movies}</b>` : "",
+      tv ? `电视剧 <b>${tv}</b>` : ""
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  function renderChart() {
+    const ranged = rangeEntries();
+    const daily = monthCount(rangeStart, rangeEnd) <= 1;
+
+    chartTitleEl.textContent = daily ? "每日观看" : "观影节奏";
+    chartSubEl.textContent = daily
+      ? "所选区间内每天的观看数量，按类型堆叠"
+      : "每个月的观看数量，按类型堆叠";
+
+    if (!ranged.length) {
+      chartEl.innerHTML = `<p class="mv-empty">暂无数据</p>`;
+      chartMetaEl.textContent = "—";
+      return;
+    }
+
+    const counts = new Map<string, { movie: number; tv: number }>();
+    for (const entry of ranged) {
+      const key = daily ? entry.d : entry.d.slice(0, 7);
+      const bucket = counts.get(key) ?? { movie: 0, tv: 0 };
+      if (entry.ty === "电视剧") bucket.tv += 1;
+      else bucket.movie += 1;
+      counts.set(key, bucket);
+    }
+
+    const keys: string[] = [];
+    if (daily) {
+      for (let cursor = rangeStart; cursor <= rangeEnd; cursor = shiftDays(cursor, 1)) keys.push(cursor);
+    } else {
+      let year = Number(rangeStart.slice(0, 4));
+      let month = Number(rangeStart.slice(5, 7));
+      const endYear = Number(rangeEnd.slice(0, 4));
+      const endMonth = Number(rangeEnd.slice(5, 7));
+      while (year < endYear || (year === endYear && month <= endMonth)) {
+        keys.push(`${year}-${pad(String(month))}`);
+        month += 1;
+        if (month > 12) {
+          month = 1;
+          year += 1;
+        }
+      }
+    }
+
+    const totals = keys.map(key => {
+      const bucket = counts.get(key);
+      return bucket ? bucket.movie + bucket.tv : 0;
+    });
+    const max = Math.max(...totals, 1);
+
+    chartEl.innerHTML = keys
+      .map((key, index) => {
+        const bucket = counts.get(key) ?? { movie: 0, tv: 0 };
+        const total = bucket.movie + bucket.tv;
+        const height = total ? Math.max(6, (total / max) * 100) : 0;
+        const showYear = daily ? index === 0 : index === 0 || key.slice(5, 7) === "01";
+        const color = yearColor(key.slice(0, 4));
+        const segments = total
+          ? `<i class="mv-seg mv-seg-movie" style="flex:${bucket.movie}"></i><i class="mv-seg mv-seg-tv" style="flex:${bucket.tv}"></i>`
+          : "";
+        return `<div class="mv-col" style="--yc:${color}" title="${key} · ${total} 部${total ? ` · 电影 ${bucket.movie} · 电视剧 ${bucket.tv}` : ""}">
+          <div class="mv-col-bar${total ? "" : " is-empty"}" style="height:${height.toFixed(1)}%">${segments}</div>
+          <span class="mv-col-label">${daily ? key.slice(8, 10) : key.slice(5, 7)}</span>
+          <span class="mv-col-year">${showYear ? (daily ? key.slice(0, 7) : key.slice(0, 4)) : ""}</span>
+        </div>`;
+      })
+      .join("");
+
+    let peakIndex = 0;
+    totals.forEach((value, index) => {
+      if (value > totals[peakIndex]) peakIndex = index;
+    });
+    const peakKey = keys[peakIndex] ?? "";
+    chartMetaEl.textContent = `峰值 ${daily ? peakKey.slice(5) : peakKey} · ${totals[peakIndex] ?? 0} 部 · ${keys.length} ${daily ? "天" : "个月"}`;
+  }
+
+  function renderList() {
+    const ranged = rangeEntries();
+    if (!ranged.length) {
+      listEl.innerHTML = `<p class="mv-empty">所选区间还没有观看记录。</p>`;
+      listMetaEl.textContent = "—";
+      moreEl.hidden = true;
+      return;
+    }
+
+    const groups = new Map<string, Entry[]>();
+    for (const entry of ranged) {
+      const month = entry.d.slice(0, 7);
+      const list = groups.get(month) ?? [];
+      list.push(entry);
+      groups.set(month, list);
+    }
+
+    const months = [...groups.keys()].sort().reverse();
+    const parts: string[] = [];
+    let remaining = visible;
+
+    for (const month of months) {
+      if (remaining <= 0) break;
+      const list = groups.get(month) ?? [];
+      const shown = list.slice(0, remaining);
+      remaining -= shown.length;
+
+      const rows = shown
+        .map(entry => {
+          const date = toDate(entry.d);
+          return `<article class="mv-item" style="--c:${typeColor(entry.ty)}">
+            <span class="mv-date">
+              <b>${entry.d.slice(5, 7)}-${entry.d.slice(8, 10)}</b>
+              <span>周${WEEKDAYS[date.getDay()]}</span>
+            </span>
+            <span class="mv-tag" style="--c:${typeColor(entry.ty)}">${entry.ty}</span>
+            <h3 class="mv-name" title="${entry.t.replace(/</g, "&lt;")}">${entry.t.replace(/</g, "&lt;")}</h3>
+            <span class="mv-status">${entry.st}</span>
+          </article>`;
+        })
+        .join("");
+
+      parts.push(`<div class="mv-month"><span>${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</span><b>${list.length} 部</b></div>${rows}`);
+    }
+
+    listEl.innerHTML = parts.join("");
+    const shownCount = Math.min(visible, ranged.length);
+    listMetaEl.textContent = `显示 ${shownCount} / ${ranged.length} 部 · ${months.length} 个月`;
+    moreEl.hidden = shownCount >= ranged.length;
+  }
+
+  function syncInputs() {
+    startEl.value = rangeStart;
+    endEl.value = rangeEnd;
+
+    const wholeMonth =
+      rangeStart &&
+      rangeEnd &&
+      rangeStart.slice(0, 7) === rangeEnd.slice(0, 7) &&
+      rangeStart.endsWith("-01") &&
+      rangeEnd === monthEnd(rangeStart.slice(0, 7));
+    monthEl.value = wholeMonth ? rangeStart.slice(0, 7) : "all";
+
+    for (const button of presetsEl.querySelectorAll<HTMLButtonElement>("button")) {
+      button.setAttribute("aria-pressed", String(button.dataset.preset === activePreset));
+    }
+  }
+
+  function renderMonths() {
+    const months = [...new Set([...entries.map(entry => entry.d.slice(0, 7)), today.slice(0, 7)])].sort().reverse();
+    monthEl.innerHTML =
+      `<option value="all">全部</option>` +
+      months
+        .map(month => `<option value="${month}">${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</option>`)
+        .join("");
+  }
+
+  function renderAll() {
+    visible = PAGE;
+    renderStats();
+    renderSummary();
+    renderChart();
+    renderList();
+  }
+
+  function applyPreset(key: string) {
+    activePreset = key;
+    if (key === "week") {
+      rangeStart = weekStart(today);
+      rangeEnd = shiftDays(rangeStart, 6);
+    } else if (key === "last7") {
+      rangeStart = shiftDays(maxDate, -6);
+      rangeEnd = maxDate;
+    } else if (key === "last30") {
+      rangeStart = shiftDays(maxDate, -29);
+      rangeEnd = maxDate;
+    } else if (key === "month") {
+      rangeStart = `${today.slice(0, 7)}-01`;
+      rangeEnd = monthEnd(today.slice(0, 7));
+    } else if (key === "year") {
+      rangeStart = `${today.slice(0, 4)}-01-01`;
+      rangeEnd = today;
+    } else {
+      rangeStart = minDate;
+      rangeEnd = maxDate;
+    }
+
+    syncInputs();
+    renderAll();
+  }
+
+  presetsEl.addEventListener("click", event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-preset]");
+    if (button?.dataset.preset) applyPreset(button.dataset.preset);
+  });
+
+  monthEl.addEventListener("change", () => {
+    const value = monthEl.value;
+    if (value === "all") {
+      rangeStart = minDate;
+      rangeEnd = maxDate;
+      activePreset = null;
+    } else {
+      rangeStart = `${value}-01`;
+      rangeEnd = monthEnd(value);
+      activePreset = value === today.slice(0, 7) ? "month" : null;
+    }
+    syncInputs();
+    renderAll();
+  });
+
+  const onDateChange = () => {
+    let start = startEl.value || minDate;
+    let stop = endEl.value || maxDate;
+    if (start > stop) [start, stop] = [stop, start];
+    rangeStart = start;
+    rangeEnd = stop;
+    activePreset = null;
+    syncInputs();
+    renderAll();
+  };
+
+  startEl.addEventListener("change", onDateChange);
+  endEl.addEventListener("change", onDateChange);
+
+  moreEl.addEventListener("click", () => {
+    visible += PAGE;
+    renderList();
+  });
+
+  renderLast();
+  renderMonths();
+  applyPreset("month");
+</script>

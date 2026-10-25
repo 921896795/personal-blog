@@ -5,6 +5,7 @@
  *   dty_daily_feedback  -> public/data/daily-feedback.json
  *   dty_quarter_okr     -> public/data/quarter-okr.json
  *   dty_daily_expense_v2 -> public/data/daily-expense.json
+ *   dty_exercise        -> public/data/exercise.json
  *
  * 用法：
  *   node scripts/sync-data.mjs            # 缺少配置时跳过，保留现有快照（供构建使用）
@@ -225,6 +226,42 @@ try {
       avgMonthly: expenseMonths.size ? round(expenseTotal / expenseMonths.size) : 0
     },
     entries: expenseEntries
+  });
+
+  // ---------------------------------------------------------------- 运动
+  const [exerciseRows] = await connection.query(
+    `SELECT DATE_FORMAT(log_date, '%Y-%m-%d') AS day,
+            type, duration, number, note
+       FROM dty_exercise
+      WHERE log_date IS NOT NULL
+      ORDER BY log_date DESC, record_time DESC`
+  );
+
+  const exerciseEntries = exerciseRows.map(row => ({
+    d: row.day,
+    t: (row.type || "").trim() || "其他",
+    du: round(row.duration),
+    nu: round(row.number),
+    n: text(row.note)
+  }));
+
+  const exerciseDates = exerciseEntries.map(entry => entry.d).sort();
+  const runningEntries = exerciseEntries.filter(entry => entry.t === "跑步");
+  const swimmingEntries = exerciseEntries.filter(entry => entry.t === "游泳");
+
+  writeSnapshot("exercise.json", {
+    syncedAt: new Date().toISOString(),
+    stats: {
+      total: exerciseEntries.length,
+      types: new Set(exerciseEntries.map(entry => entry.t)).size,
+      days: new Set(exerciseDates).size,
+      distance: round(runningEntries.reduce((sum, entry) => sum + entry.nu, 0)),
+      duration: round(swimmingEntries.reduce((sum, entry) => sum + entry.du, 0)),
+      months: new Set(exerciseDates.map(day => day.slice(0, 7))).size,
+      start: exerciseDates[0] ?? null,
+      end: exerciseDates[exerciseDates.length - 1] ?? null
+    },
+    entries: exerciseEntries
   });
 } catch (error) {
   fallback(`连接或查询失败：${error.message}`);

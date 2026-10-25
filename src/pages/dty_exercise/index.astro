@@ -1,0 +1,765 @@
+---
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import BaseLayout from "@/layouts/BaseLayout.astro";
+
+type Entry = { d: string; t: string; du: number; nu: number; n: string | null };
+type Payload = {
+  syncedAt: string;
+  stats: {
+    total: number;
+    types: number;
+    days: number;
+    distance: number;
+    duration: number;
+    months: number;
+    start: string | null;
+    end: string | null;
+  };
+  entries: Entry[];
+};
+
+const dataPath = resolve(process.cwd(), "public/data/exercise.json");
+const data: Payload = existsSync(dataPath)
+  ? JSON.parse(readFileSync(dataPath, "utf8"))
+  : {
+      syncedAt: "",
+      stats: { total: 0, types: 0, days: 0, distance: 0, duration: 0, months: 0, start: null, end: null },
+      entries: []
+    };
+
+const one = (value: number) =>
+  value.toLocaleString("zh-CN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+const span = data.stats.start && data.stats.end
+  ? `${data.stats.start.slice(0, 7)} ~ ${data.stats.end.slice(0, 7)}`
+  : "—";
+
+const syncedLabel = data.syncedAt
+  ? new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(data.syncedAt))
+  : "—";
+---
+
+<BaseLayout title="运动" description="跑步、游泳与工间操的运动记录">
+  <section class="container ex-hero">
+    <p class="eyebrow">Movement Log</p>
+    <h1 class="ex-title">运动</h1>
+    <p class="lead ex-lead">跑过、游过、动过的日子，都在这里。</p>
+    <p class="ex-last" id="ex-last">
+      最近一次 · <b>{data.stats.end ?? "—"}</b>
+    </p>
+
+    <dl class="ex-stats">
+      <div>
+        <dt>运动次数</dt>
+        <dd>{data.stats.total}<small>次</small></dd>
+      </div>
+      <div>
+        <dt>跑步里程</dt>
+        <dd>{one(data.stats.distance)}<small>km</small></dd>
+      </div>
+      <div>
+        <dt>游泳时长</dt>
+        <dd>{one(data.stats.duration)}<small>小时</small></dd>
+      </div>
+      <div>
+        <dt>记录跨度</dt>
+        <dd class="ex-span">{span}<small>{data.stats.months} 个月</small></dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="container ex-panel-wrap">
+    <div class="ex-panel">
+      <header class="ex-panel-head">
+        <div>
+          <h2>运动类型</h2>
+          <p class="muted">每种运动的次数、累计量与最近一次</p>
+        </div>
+        <span class="ex-meta" id="ex-type-meta">—</span>
+      </header>
+      <div class="ex-types" id="ex-types">
+        <p class="ex-empty">正在载入…</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="container ex-panel-wrap">
+    <div class="ex-panel">
+      <header class="ex-panel-head">
+        <div>
+          <h2>月度节奏</h2>
+          <p class="muted">每个月记录的运动次数，按年份着色</p>
+        </div>
+        <span class="ex-meta" id="ex-chart-meta">—</span>
+      </header>
+      <div class="ex-chart-wrap">
+        <div class="ex-chart" id="ex-chart"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="container">
+    <div class="ex-timeline" id="ex-timeline">
+      <p class="ex-empty">正在载入…</p>
+    </div>
+
+    <p class="ex-source">
+      数据来源：MySQL 表 <code>dty_exercise</code> · 最近同步 {syncedLabel}
+    </p>
+  </section>
+</BaseLayout>
+
+<script type="application/json" id="ex-data" set:html={JSON.stringify(data).replace(/</g, "\\u003c")}></script>
+
+<style is:global>
+  .ex-hero {
+    padding-bottom: 10px;
+  }
+
+  .ex-title {
+    font-size: clamp(2.6rem, 9vw, 5rem);
+    letter-spacing: -0.02em;
+  }
+
+  .ex-lead {
+    margin-top: 14px;
+  }
+
+  .ex-last {
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+    margin: 16px 0 0;
+    padding: 5px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent), transparent 93%);
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-last b {
+    color: var(--accent-strong);
+  }
+
+  .ex-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin: 24px 0 0;
+    padding: 0;
+  }
+
+  .ex-stats div {
+    position: relative;
+    display: grid;
+    gap: 2px;
+    padding: 14px 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .ex-stats div::after {
+    content: "";
+    position: absolute;
+    inset: auto -30% -60% auto;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent), transparent 80%), transparent 70%);
+  }
+
+  .ex-stats dt {
+    color: var(--muted);
+    font-size: 0.76rem;
+    letter-spacing: 0.16em;
+  }
+
+  .ex-stats dd {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+  }
+
+  .ex-stats dd small {
+    margin-left: 5px;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .ex-stats .ex-span {
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .ex-panel-wrap {
+    margin-top: 16px;
+  }
+
+  .ex-panel {
+    padding: 20px 22px 22px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background:
+      radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent), transparent 93%), transparent 55%),
+      var(--surface);
+  }
+
+  .ex-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .ex-panel-head h2 {
+    margin: 0 0 4px;
+    font-size: 1.15rem;
+  }
+
+  .ex-panel-head p {
+    margin: 0;
+    font-size: 0.84rem;
+  }
+
+  .ex-meta {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .ex-types {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 12px;
+  }
+
+  .ex-type {
+    position: relative;
+    display: grid;
+    gap: 6px;
+    padding: 16px 18px 14px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--c), transparent 96%);
+  }
+
+  .ex-type::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--c), transparent 25%), var(--c));
+  }
+
+  .ex-type-head {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .ex-type-name {
+    color: var(--c);
+    font-size: 0.95rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+  }
+
+  .ex-type-share {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-type-main {
+    margin: 0;
+    font-size: 1.9rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .ex-type-main small {
+    margin-left: 4px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+
+  .ex-type-sub {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-type-bar {
+    height: 5px;
+    margin: 4px 0 2px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--line), transparent 40%);
+    overflow: hidden;
+  }
+
+  .ex-type-bar i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--c);
+  }
+
+  .ex-type-foot {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-chart-wrap {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .ex-chart {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+    min-height: 156px;
+    padding-top: 8px;
+  }
+
+  .ex-col {
+    display: flex;
+    flex: 1 0 24px;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 24px;
+    height: 148px;
+    text-align: center;
+  }
+
+  .ex-col-bar {
+    width: 100%;
+    min-height: 2px;
+    border-radius: 5px 5px 2px 2px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--yc), transparent 20%), var(--yc));
+    transition: filter 0.15s, height 0.2s;
+  }
+
+  .ex-col-bar.is-empty {
+    background: color-mix(in srgb, var(--line), transparent 15%);
+  }
+
+  .ex-col:hover .ex-col-bar {
+    filter: saturate(1.25) brightness(1.06);
+  }
+
+  .ex-col-label {
+    color: var(--muted);
+    font-size: 0.66rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .ex-col-year {
+    color: color-mix(in srgb, var(--muted), transparent 35%);
+    font-size: 0.58rem;
+    line-height: 1;
+  }
+
+  .ex-timeline {
+    display: grid;
+    margin-top: 16px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .ex-month {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 11px 20px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface-strong), transparent 25%);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+  }
+
+  .ex-month:first-child {
+    border-top: none;
+  }
+
+  .ex-month b {
+    margin-left: auto;
+    color: var(--text);
+    font-size: 0.84rem;
+    letter-spacing: normal;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 62px 106px minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    padding: 12px 20px;
+    border-bottom: 1px solid color-mix(in srgb, var(--line), transparent 45%);
+    transition: background 0.15s;
+  }
+
+  .ex-item:last-child {
+    border-bottom: none;
+  }
+
+  .ex-item:hover {
+    background: color-mix(in srgb, var(--accent), transparent 95%);
+  }
+
+  .ex-item::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--c);
+    opacity: 0.75;
+  }
+
+  .ex-date {
+    display: grid;
+    gap: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-date b {
+    font-size: 0.98rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .ex-date span {
+    color: var(--muted);
+    font-size: 0.68rem;
+  }
+
+  .ex-tag {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    justify-self: start;
+    max-width: 100%;
+    padding: 3px 10px;
+    border: 1px solid color-mix(in srgb, var(--c), transparent 58%);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--c), transparent 91%);
+    color: var(--c);
+    font-size: 0.76rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .ex-tag i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--c);
+  }
+
+  .ex-note {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 0.84rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ex-value {
+    font-size: 1rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .ex-empty {
+    padding: 40px 0;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .ex-source {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .ex-source code {
+    color: var(--accent-strong);
+  }
+
+  @media (max-width: 700px) {
+    .ex-item {
+      grid-template-columns: 56px minmax(0, 1fr) auto;
+      grid-template-areas:
+        "date note value"
+        "date tag value";
+      gap: 4px 12px;
+      padding: 12px 14px;
+    }
+
+    .ex-date {
+      grid-area: date;
+    }
+
+    .ex-tag {
+      grid-area: tag;
+    }
+
+    .ex-note {
+      grid-area: note;
+    }
+
+    .ex-value {
+      grid-area: value;
+    }
+
+    .ex-panel {
+      padding: 16px;
+    }
+  }
+</style>
+
+<script>
+  type Entry = { d: string; t: string; du: number; nu: number; n: string | null };
+
+  const TYPES: Record<string, { color: string; unit: string }> = {
+    跑步: { color: "#2f6f73", unit: "km" },
+    游泳: { color: "#5f7fa8", unit: "小时" },
+    工间操: { color: "#c98a4b", unit: "次" }
+  };
+  const FALLBACK = { color: "#918577", unit: "次" };
+  const YEAR_COLORS = ["#7d8fa6", "#2f6f73", "#c98a4b", "#7d68a6"];
+  const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+
+  const payload = JSON.parse(document.getElementById("ex-data")?.textContent ?? "{}") as {
+    stats: { end: string | null };
+    entries: Entry[];
+  };
+
+  const entries = payload.entries;
+  const lastEl = document.getElementById("ex-last") as HTMLElement;
+  const typesEl = document.getElementById("ex-types") as HTMLElement;
+  const typeMetaEl = document.getElementById("ex-type-meta") as HTMLElement;
+  const chartEl = document.getElementById("ex-chart") as HTMLElement;
+  const chartMetaEl = document.getElementById("ex-chart-meta") as HTMLElement;
+  const timelineEl = document.getElementById("ex-timeline") as HTMLElement;
+
+  const metaOf = (type: string) => TYPES[type] ?? FALLBACK;
+  const pad = (value: string) => value.padStart(2, "0");
+  const toDate = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  };
+  const toISO = (date: Date) =>
+    `${date.getFullYear()}-${pad(String(date.getMonth() + 1))}-${pad(String(date.getDate()))}`;
+  const shiftDays = (value: string, delta: number) => {
+    const date = toDate(value);
+    date.setDate(date.getDate() + delta);
+    return toISO(date);
+  };
+  const round1 = (value: number) => Math.round(value * 10) / 10;
+
+  // 以时长为主的运动（游泳）用 duration，其余用 number
+  const primaryOf = (entry: Entry) => (entry.du > 0 ? entry.du : entry.nu);
+  const valueLabel = (entry: Entry) => {
+    if (entry.du > 0) return `${entry.du.toFixed(1)} 小时`;
+    if (entry.nu > 0) return entry.t === "跑步" ? `${entry.nu.toFixed(1)} km` : `${entry.nu.toFixed(0)} 次`;
+    return "—";
+  };
+
+  function renderLast() {
+    const end = payload.stats.end;
+    if (!end) {
+      lastEl.innerHTML = `还没有运动记录`;
+      return;
+    }
+    const days = Math.max(0, Math.round((toDate(toISO(new Date())).getTime() - toDate(end).getTime()) / 86400000));
+    lastEl.innerHTML = `最近一次 · <b>${end}</b> · <b>${days}</b> 天前`;
+  }
+
+  function renderTypes() {
+    const groups = new Map<string, Entry[]>();
+    for (const entry of entries) {
+      const list = groups.get(entry.t) ?? [];
+      list.push(entry);
+      groups.set(entry.t, list);
+    }
+
+    const rows = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+    if (!rows.length) {
+      typesEl.innerHTML = `<p class="ex-empty">暂无数据</p>`;
+      typeMetaEl.textContent = "—";
+      return;
+    }
+
+    typesEl.innerHTML = rows
+      .map(([type, list]) => {
+        const meta = metaOf(type);
+        const total = list.reduce((sum, entry) => sum + primaryOf(entry), 0);
+        const avg = total / list.length;
+        const share = (list.length / entries.length) * 100;
+        const last = list.map(entry => entry.d).sort().pop() ?? "—";
+        const unit = meta.unit;
+        const totalText = `${round1(total)} ${unit}`;
+        return `<article class="ex-type" style="--c:${meta.color}">
+          <div class="ex-type-head">
+            <span class="ex-type-name">${type}</span>
+            <span class="ex-type-share">${share.toFixed(1)}%</span>
+          </div>
+          <p class="ex-type-main">${list.length}<small>次</small></p>
+          <p class="ex-type-sub">累计 ${totalText} · 场均 ${round1(avg)} ${unit}</p>
+          <div class="ex-type-bar"><i style="width:${share.toFixed(1)}%"></i></div>
+          <span class="ex-type-foot">最近 ${last}</span>
+        </article>`;
+      })
+      .join("");
+
+    typeMetaEl.textContent = `${rows.length} 种运动 · 共 ${entries.length} 次`;
+  }
+
+  function renderChart() {
+    if (!entries.length) {
+      chartEl.innerHTML = `<p class="ex-empty">暂无数据</p>`;
+      chartMetaEl.textContent = "—";
+      return;
+    }
+
+    const dates = entries.map(entry => entry.d).sort();
+    const firstMonth = `${dates[0].slice(0, 7)}-01`;
+    const lastMonth = `${dates[dates.length - 1].slice(0, 7)}-01`;
+
+    const counts = new Map<string, number>();
+    const distances = new Map<string, number>();
+    const durations = new Map<string, number>();
+    for (const entry of entries) {
+      const key = entry.d.slice(0, 7);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      if (entry.t === "跑步") distances.set(key, (distances.get(key) ?? 0) + entry.nu);
+      if (entry.du > 0) durations.set(key, (durations.get(key) ?? 0) + entry.du);
+    }
+
+    const keys: string[] = [];
+    const startYear = Number(firstMonth.slice(0, 4));
+    const startMonth = Number(firstMonth.slice(5, 7));
+    const endYear = Number(lastMonth.slice(0, 4));
+    const endMonth = Number(lastMonth.slice(5, 7));
+    let year = startYear;
+    let month = startMonth;
+    while (year < endYear || (year === endYear && month <= endMonth)) {
+      keys.push(`${year}-${pad(String(month))}`);
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+    }
+
+    const years = [...new Set(keys.map(key => key.slice(0, 4)))].sort();
+    const max = Math.max(...keys.map(key => counts.get(key) ?? 0), 1);
+
+    chartEl.innerHTML = keys
+      .map((key, index) => {
+        const count = counts.get(key) ?? 0;
+        const height = count ? Math.max(6, (count / max) * 100) : 0;
+        const yearIndex = years.indexOf(key.slice(0, 4));
+        const showYear = index === 0 || key.slice(5, 7) === "01";
+        const detail = [
+          `${count} 次`,
+          distances.get(key) ? `${round1(distances.get(key) ?? 0)} km` : "",
+          durations.get(key) ? `${round1(durations.get(key) ?? 0)} 小时` : ""
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return `<div class="ex-col" style="--yc:${YEAR_COLORS[yearIndex % YEAR_COLORS.length]}" title="${key} · ${count ? detail : "无记录"}">
+          <div class="ex-col-bar${count ? "" : " is-empty"}" style="height:${height.toFixed(1)}%"></div>
+          <span class="ex-col-label">${key.slice(5, 7)}</span>
+          <span class="ex-col-year">${showYear ? key.slice(0, 4) : ""}</span>
+        </div>`;
+      })
+      .join("");
+
+    const peakKey = keys.reduce((best, key) => ((counts.get(key) ?? 0) > (counts.get(best) ?? 0) ? key : best));
+    chartMetaEl.textContent = `峰值 ${peakKey} · ${counts.get(peakKey) ?? 0} 次 · ${keys.length} 个月`;
+  }
+
+  function renderTimeline() {
+    if (!entries.length) {
+      timelineEl.innerHTML = `<p class="ex-empty">还没有运动记录。</p>`;
+      return;
+    }
+
+    const groups = new Map<string, Entry[]>();
+    for (const entry of entries) {
+      const month = entry.d.slice(0, 7);
+      const list = groups.get(month) ?? [];
+      list.push(entry);
+      groups.set(month, list);
+    }
+
+    const months = [...groups.keys()].sort().reverse();
+    timelineEl.innerHTML = months
+      .map(month => {
+        const list = groups.get(month) ?? [];
+        const rows = list
+          .map(entry => {
+            const meta = metaOf(entry.t);
+            const date = toDate(entry.d);
+            const note = entry.n ? entry.n.replace(/</g, "&lt;") : "—";
+            return `<article class="ex-item" style="--c:${meta.color}">
+              <div class="ex-date">
+                <b>${entry.d.slice(5, 7)}-${entry.d.slice(8, 10)}</b>
+                <span>周${WEEKDAYS[date.getDay()]}</span>
+              </div>
+              <span class="ex-tag" style="--c:${meta.color}"><i></i>${entry.t}</span>
+              <span class="ex-note" title="${note}">${note}</span>
+              <span class="ex-value">${valueLabel(entry)}</span>
+            </article>`;
+          })
+          .join("");
+        return `<div class="ex-month"><span>${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</span><b>${list.length} 次</b></div>${rows}`;
+      })
+      .join("");
+  }
+
+  renderLast();
+  renderTypes();
+  renderChart();
+  renderTimeline();
+</script>

@@ -21,7 +21,8 @@ export const NAV_LINKS = [
   { href: "/dty_exercise/", label: "运动" },
   { href: "/dty_books/", label: "读书" },
   { href: "/dty_movie/", label: "影视" },
-  { href: "/dty_trade_review/", label: "个股复盘" }
+  { href: "/dty_trade_review/", label: "个股复盘" },
+  { href: "/dty_week_return/", label: "周收益" }
 ];
 
 export const SOCIAL_LINKS = [

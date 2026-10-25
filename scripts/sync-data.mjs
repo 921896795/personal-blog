@@ -9,6 +9,7 @@
  *   dty_books           -> public/data/books.json
  *   dty_movies          -> public/data/movies.json
  *   ods_trade_股票交易复盘 -> public/data/trade-review.json
+ *   ods_trade_周度收益   -> public/data/week-return.json
  *
  * 用法：
  *   node scripts/sync-data.mjs            # 缺少配置时跳过，保留现有快照（供构建使用）
@@ -373,6 +374,56 @@ try {
       latest: tradeEntries[0] ? `${tradeEntries[0].d} · ${tradeEntries[0].s}` : null
     },
     entries: tradeEntries
+  });
+
+  // ---------------------------------------------------------------- 周度收益
+  const [weekRows] = await connection.query(
+    `SELECT id, 账户类, 账户金额, 备注, DATE_FORMAT(周, '%Y-%m-%d') AS day
+       FROM ods_trade_周度收益
+      WHERE 周 IS NOT NULL
+      ORDER BY 周 DESC, id ASC`
+  );
+
+  // 表内暂无数据时先用演示数据（1 月 10 条）预览设计，写入真实数据后自动替换
+  const DEMO_WEEK_ROWS = [
+    { 周: "2026-01-05", 账户类: "A账户", 账户金额: 1280.5, 备注: "新年第一周，主线仓位吃到第一波，节奏还行" },
+    { 周: "2026-01-05", 账户类: "B账户", 账户金额: 430, 备注: "只做低吸套利，仓位偏轻" },
+    { 周: "2026-01-05", 账户类: "C账户", 账户金额: -90, 备注: "试错单，止损及时" },
+    { 周: "2026-01-12", 账户类: "A账户", 账户金额: -320, 备注: "追高了一次，回撤控制得一般" },
+    { 周: "2026-01-12", 账户类: "B账户", 账户金额: 220.6, 备注: "轮动到消费，赚了点差价" },
+    { 周: "2026-01-19", 账户类: "A账户", 账户金额: 860.75, 备注: "冰点买回，反弹兑现" },
+    { 周: "2026-01-19", 账户类: "C账户", 账户金额: 310.4, 备注: "事件预期兑现，按计划卖出" },
+    { 周: "2026-01-26", 账户类: "A账户", 账户金额: 1540.2, 备注: "节前最后一波，减仓过年" },
+    { 周: "2026-01-26", 账户类: "B账户", 账户金额: -150.3, 备注: "节前交易清淡，试错一次" },
+    { 周: "2026-01-26", 账户类: "C账户", 账户金额: 580, 备注: "小仓位潜伏成功" }
+  ];
+
+  const weekDemo = weekRows.length === 0;
+  const weekSource = weekDemo ? DEMO_WEEK_ROWS : weekRows;
+  const weekEntries = weekSource.map((row, index) => ({
+    id: row.id ?? index + 1,
+    w: row.day ?? row.周,
+    a: (row.账户类 || "").trim() || "未分类",
+    v: round(row.账户金额),
+    n: text(row.备注)
+  }));
+
+  const weekDates = weekEntries.map(entry => entry.w).sort();
+  const weekTotal = round(weekEntries.reduce((sum, entry) => sum + entry.v, 0));
+  const weekCount = new Set(weekDates).size;
+
+  writeSnapshot("week-return.json", {
+    syncedAt: new Date().toISOString(),
+    demo: weekDemo,
+    stats: {
+      total: weekEntries.length,
+      accounts: new Set(weekEntries.map(entry => entry.a)).size,
+      weeks: weekCount,
+      amount: weekTotal,
+      start: weekDates[0] ?? null,
+      end: weekDates[weekDates.length - 1] ?? null
+    },
+    entries: weekEntries
   });
 } catch (error) {
   fallback(`连接或查询失败：${error.message}`);

@@ -74,6 +74,7 @@ const syncedLabel = data.syncedAt
   <section class="container">
     <div class="fb-range-bar">
       <div class="fb-chips" id="fb-presets" role="group" aria-label="时间范围">
+        <button type="button" data-preset="week" aria-pressed="false">本周</button>
         <button type="button" data-preset="last7" aria-pressed="false">近 7 天</button>
         <button type="button" data-preset="last30" aria-pressed="true">近 30 天</button>
         <button type="button" data-preset="month" aria-pressed="false">本月</button>
@@ -727,6 +728,8 @@ const syncedLabel = data.syncedAt
     const [year, index] = month.split("-").map(Number);
     return toISO(new Date(year, index, 0));
   };
+  // 以周一为一周起点
+  const weekStart = (value: string) => shiftDays(value, -((toDate(value).getDay() + 6) % 7));
 
   function filtered() {
     return entries.filter(entry => entry.d >= rangeStart && entry.d <= rangeEnd);
@@ -748,7 +751,10 @@ const syncedLabel = data.syncedAt
   function applyPreset(key: string) {
     activePreset = key;
 
-    if (key === "last7") {
+    if (key === "week") {
+      rangeStart = weekStart(maxDate);
+      rangeEnd = shiftDays(rangeStart, 6);
+    } else if (key === "last7") {
       rangeStart = shiftDays(maxDate, -6);
       rangeEnd = maxDate;
     } else if (key === "last30") {

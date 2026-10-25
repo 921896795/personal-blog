@@ -44,10 +44,10 @@ const syncedLabel = data.syncedAt
   : "—";
 ---
 
-<BaseLayout title="收支" description="按日期记录的支出账本">
+<BaseLayout title="支出" description="按日期记录的支出账本">
   <section class="container exp-hero">
     <p class="eyebrow">Expense Ledger</p>
-    <h1 class="exp-title">收支</h1>
+    <h1 class="exp-title">支出</h1>
     <p class="lead exp-lead">每一笔花出去的钱，都记在这里。</p>
 
     <dl class="exp-stats">
@@ -71,18 +71,43 @@ const syncedLabel = data.syncedAt
   </section>
 
   <section class="container">
-    <div class="exp-filter">
-      <div class="exp-chips" id="exp-years" role="group" aria-label="按年份筛选"></div>
-      <p class="exp-summary" id="exp-summary">—</p>
+    <div class="exp-range-bar">
+      <div class="exp-chips" id="exp-presets" role="group" aria-label="时间范围">
+        <button type="button" data-preset="week" aria-pressed="false">本周</button>
+        <button type="button" data-preset="last7" aria-pressed="false">近 7 天</button>
+        <button type="button" data-preset="last30" aria-pressed="false">近 30 天</button>
+        <button type="button" data-preset="month" aria-pressed="true">本月</button>
+        <button type="button" data-preset="year" aria-pressed="false">本年</button>
+        <button type="button" data-preset="all" aria-pressed="false">全部</button>
+      </div>
+
+      <div class="exp-pickers">
+        <label>
+          月份
+          <select id="exp-month">
+            <option value="all">全部</option>
+          </select>
+        </label>
+        <label>
+          起
+          <input type="date" id="exp-start" />
+        </label>
+        <label>
+          止
+          <input type="date" id="exp-end" />
+        </label>
+      </div>
     </div>
+
+    <p class="exp-summary" id="exp-summary">—</p>
   </section>
 
   <section class="container exp-panel-wrap">
     <div class="exp-panel">
       <header class="exp-panel-head">
         <div>
-          <h2>月度趋势</h2>
-          <p class="muted">每个月的支出总额，按年份着色</p>
+          <h2 id="exp-chart-title">月度趋势</h2>
+          <p class="muted" id="exp-chart-sub">每个月的支出总额，按年份着色</p>
         </div>
         <span class="exp-meta" id="exp-chart-meta">—</span>
       </header>
@@ -191,16 +216,48 @@ const syncedLabel = data.syncedAt
     font-weight: 700;
   }
 
-  .exp-filter {
+  .exp-range-bar {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px 18px;
+    gap: 12px 20px;
     align-items: center;
-    margin: 24px 0 18px;
-    padding: 12px 16px;
+    margin: 24px 0 10px;
+    padding: 14px 16px;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--surface);
+  }
+
+  .exp-pickers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-left: auto;
+  }
+
+  .exp-pickers label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .exp-pickers select,
+  .exp-pickers input {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--surface-strong);
+    color: var(--text);
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .exp-pickers select:focus,
+  .exp-pickers input:focus {
+    outline: 2px solid color-mix(in srgb, var(--accent), transparent 55%);
+    outline-offset: 1px;
   }
 
   .exp-chips {
@@ -234,7 +291,7 @@ const syncedLabel = data.syncedAt
   }
 
   .exp-summary {
-    margin: 0 0 0 auto;
+    margin: 0 0 16px;
     color: var(--muted);
     font-size: 0.85rem;
     font-variant-numeric: tabular-nums;
@@ -309,10 +366,14 @@ const syncedLabel = data.syncedAt
 
   .exp-col-bar {
     width: 100%;
-    min-height: 3px;
+    min-height: 2px;
     border-radius: 5px 5px 2px 2px;
     background: linear-gradient(180deg, color-mix(in srgb, var(--yc), transparent 20%), var(--yc));
     transition: filter 0.15s, height 0.2s;
+  }
+
+  .exp-col-bar.is-empty {
+    background: color-mix(in srgb, var(--line), transparent 15%);
   }
 
   .exp-col:hover .exp-col-bar {
@@ -626,92 +687,174 @@ const syncedLabel = data.syncedAt
   };
 
   const entries = payload.entries;
-  const years = [...new Set(entries.map(entry => entry.d.slice(0, 4)))].sort().reverse();
+  const allDates = entries.map(entry => entry.d).sort();
+  const minDate = allDates[0] ?? "";
+  const maxDate = allDates[allDates.length - 1] ?? "";
+
   const yearColor = (year: string) => {
-    const ascending = [...years].sort();
+    const ascending = [...new Set(entries.map(entry => entry.d.slice(0, 4)))].sort();
     const index = ascending.indexOf(year);
     return YEAR_COLORS[(index < 0 ? 0 : index) % YEAR_COLORS.length];
   };
 
-  const yearsEl = document.getElementById("exp-years") as HTMLElement;
+  const presetsEl = document.getElementById("exp-presets") as HTMLElement;
+  const monthEl = document.getElementById("exp-month") as HTMLSelectElement;
+  const startEl = document.getElementById("exp-start") as HTMLInputElement;
+  const endEl = document.getElementById("exp-end") as HTMLInputElement;
   const summaryEl = document.getElementById("exp-summary") as HTMLElement;
   const chartEl = document.getElementById("exp-chart") as HTMLElement;
+  const chartTitleEl = document.getElementById("exp-chart-title") as HTMLElement;
+  const chartSubEl = document.getElementById("exp-chart-sub") as HTMLElement;
   const chartMetaEl = document.getElementById("exp-chart-meta") as HTMLElement;
   const catsEl = document.getElementById("exp-cats") as HTMLElement;
   const catMetaEl = document.getElementById("exp-cat-meta") as HTMLElement;
   const listEl = document.getElementById("exp-list") as HTMLElement;
   const moreBtn = document.getElementById("exp-more") as HTMLButtonElement;
 
-  let activeYear = "all";
+  let rangeStart = minDate;
+  let rangeEnd = maxDate;
+  let activePreset: string | null = "month";
   let limit = PAGE_SIZE;
   const hidden = new Set<string>();
 
   const money = (value: number) =>
     `¥${value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const byYear = () => entries.filter(entry => activeYear === "all" || entry.d.startsWith(activeYear));
-  const filtered = () => byYear().filter(entry => !hidden.has(entry.c));
+  const pad = (value: string) => value.padStart(2, "0");
+  const toDate = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  };
+  const toISO = (date: Date) =>
+    `${date.getFullYear()}-${pad(String(date.getMonth() + 1))}-${pad(String(date.getDate()))}`;
+  const shiftDays = (value: string, delta: number) => {
+    const date = toDate(value);
+    date.setDate(date.getDate() + delta);
+    return toISO(date);
+  };
+  const monthEnd = (month: string) => {
+    const [year, index] = month.split("-").map(Number);
+    return toISO(new Date(year, index, 0));
+  };
+  const weekStart = (value: string) => shiftDays(value, -((toDate(value).getDay() + 6) % 7));
 
-  function renderYears() {
-    const items = [["all", "全部"], ...years.map(year => [year, year])];
-    yearsEl.innerHTML = items
-      .map(
-        ([value, label]) =>
-          `<button type="button" data-year="${value}" aria-pressed="${String(value === activeYear)}">${label}</button>`
-      )
-      .join("");
+  const inRange = (entry: Entry) => entry.d >= rangeStart && entry.d <= rangeEnd;
+  const rangeList = () => entries.filter(inRange);
+  const filtered = () => rangeList().filter(entry => !hidden.has(entry.c));
+
+  function syncInputs() {
+    startEl.value = rangeStart;
+    endEl.value = rangeEnd;
+
+    const sameMonth = rangeStart.slice(0, 7) === rangeEnd.slice(0, 7);
+    const wholeMonth = sameMonth && rangeStart.endsWith("-01") && rangeEnd === monthEnd(rangeStart.slice(0, 7));
+    monthEl.value = wholeMonth ? rangeStart.slice(0, 7) : "all";
+
+    presetsEl.querySelectorAll<HTMLButtonElement>("button").forEach(button => {
+      button.setAttribute("aria-pressed", String(button.dataset.preset === activePreset));
+    });
+  }
+
+  function applyPreset(key: string) {
+    activePreset = key;
+
+    if (key === "week") {
+      rangeStart = weekStart(maxDate);
+      rangeEnd = shiftDays(rangeStart, 6);
+    } else if (key === "last7") {
+      rangeStart = shiftDays(maxDate, -6);
+      rangeEnd = maxDate;
+    } else if (key === "last30") {
+      rangeStart = shiftDays(maxDate, -29);
+      rangeEnd = maxDate;
+    } else if (key === "month") {
+      rangeStart = `${maxDate.slice(0, 7)}-01`;
+      rangeEnd = monthEnd(maxDate.slice(0, 7));
+    } else if (key === "year") {
+      rangeStart = `${maxDate.slice(0, 4)}-01-01`;
+      rangeEnd = maxDate;
+    } else {
+      rangeStart = minDate;
+      rangeEnd = maxDate;
+    }
+
+    limit = PAGE_SIZE;
+    syncInputs();
+    renderAll();
+  }
+
+  function renderMonths() {
+    const months = [...new Set(entries.map(entry => entry.d.slice(0, 7)))].sort().reverse();
+    monthEl.innerHTML = [
+      `<option value="all">全部</option>`,
+      ...months.map(month => `<option value="${month}">${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</option>`)
+    ].join("");
   }
 
   function renderSummary() {
     const list = filtered();
     const total = list.reduce((sum, entry) => sum + entry.a, 0);
-    const dates = list.map(entry => entry.d).sort();
 
     summaryEl.innerHTML = list.length
-      ? `${dates[0]} ~ ${dates[dates.length - 1]} · <b>${list.length}</b> 笔 · 合计 <b>${money(total)}</b> · 笔均 <b>${money(total / list.length)}</b>`
-      : "所选筛选下没有记录";
+      ? `<b>${rangeStart}</b> ~ <b>${rangeEnd}</b> · 共 <b>${list.length}</b> 笔 · 合计 <b>${money(total)}</b> · 笔均 <b>${money(total / list.length)}</b>`
+      : `<b>${rangeStart}</b> ~ <b>${rangeEnd}</b> · 所选区间没有记录`;
   }
 
   function renderChart() {
     const list = filtered();
-    const months = new Map<string, number>();
-    for (const entry of list) {
-      const month = entry.d.slice(0, 7);
-      months.set(month, (months.get(month) ?? 0) + entry.a);
-    }
+    const monthKeys = [...new Set(list.map(entry => entry.d.slice(0, 7)))];
+    const daily = monthKeys.length <= 1;
 
-    const keys = [...months.keys()].sort();
-    const max = Math.max(...keys.map(key => months.get(key) ?? 0), 0);
+    chartTitleEl.textContent = daily ? "每日趋势" : "月度趋势";
+    chartSubEl.textContent = daily ? "所选区间内每天的支出" : "每个月的支出总额，按年份着色";
 
-    if (!keys.length) {
+    if (!list.length) {
       chartEl.innerHTML = `<p class="exp-empty">暂无数据</p>`;
       chartMetaEl.textContent = "—";
       return;
     }
 
+    const buckets = new Map<string, number>();
+    for (const entry of list) {
+      const key = daily ? entry.d : entry.d.slice(0, 7);
+      buckets.set(key, (buckets.get(key) ?? 0) + entry.a);
+    }
+
+    // 单月视图按天铺满区间，没有记录的日子留空柱
+    const keys: string[] = [];
+    if (daily) {
+      for (let cursor = rangeStart; cursor <= rangeEnd; cursor = shiftDays(cursor, 1)) keys.push(cursor);
+    } else {
+      keys.push(...[...buckets.keys()].sort());
+    }
+
+    const max = Math.max(...keys.map(key => buckets.get(key) ?? 0), 0);
+
     chartEl.innerHTML = keys
       .map((key, index) => {
-        const amount = months.get(key) ?? 0;
-        const height = max ? Math.max(3, (amount / max) * 100) : 3;
+        const amount = buckets.get(key) ?? 0;
+        const height = max && amount > 0 ? Math.max(3, (amount / max) * 100) : 0;
         const year = key.slice(0, 4);
         const month = key.slice(5, 7);
-        const showYear = index === 0 || month === "01";
-        return `<div class="exp-col" style="--yc:${yearColor(year)}" title="${key} · ${money(amount)}">
-          <div class="exp-col-bar" style="height:${height.toFixed(1)}%"></div>
-          <span class="exp-col-label">${month} 月</span>
+        const showYear = !daily && (index === 0 || month === "01");
+        const label = daily ? `${Number(key.slice(8, 10))} 日` : `${month} 月`;
+        const empty = amount > 0 ? "" : " is-empty";
+        return `<div class="exp-col" style="--yc:${yearColor(year)}" title="${key} · ${amount ? money(amount) : "无记录"}">
+          <div class="exp-col-bar${empty}" style="height:${height.toFixed(1)}%"></div>
+          <span class="exp-col-label">${label}</span>
           <span class="exp-col-year">${showYear ? year : ""}</span>
         </div>`;
       })
       .join("");
 
     const peakKey = keys.reduce((best, key) =>
-      (months.get(key) ?? 0) > (months.get(best) ?? 0) ? key : best
+      (buckets.get(key) ?? 0) > (buckets.get(best) ?? 0) ? key : best
     );
-    chartMetaEl.textContent = `峰值 ${peakKey} · ${money(months.get(peakKey) ?? 0)} · ${keys.length} 个月`;
+    chartMetaEl.textContent = `峰值 ${peakKey} · ${money(buckets.get(peakKey) ?? 0)} · ${keys.length} ${daily ? "天" : "个月"}`;
   }
 
   function renderCats() {
-    const list = byYear();
+    const list = rangeList();
     const totals = new Map<string, number>();
     for (const entry of list) totals.set(entry.c, (totals.get(entry.c) ?? 0) + entry.a);
 
@@ -790,16 +933,40 @@ const syncedLabel = data.syncedAt
     renderList();
   }
 
-  yearsEl.addEventListener("click", event => {
-    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-year]");
+  presetsEl.addEventListener("click", event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-preset]");
     if (!button) return;
-    activeYear = button.dataset.year ?? "all";
+    applyPreset(button.dataset.preset ?? "month");
+  });
+
+  monthEl.addEventListener("change", () => {
+    const month = monthEl.value;
+    if (month === "all") {
+      activePreset = null;
+      applyPreset("all");
+      return;
+    }
+    activePreset = month === maxDate.slice(0, 7) ? "month" : null;
+    rangeStart = `${month}-01`;
+    rangeEnd = monthEnd(month);
     limit = PAGE_SIZE;
-    yearsEl.querySelectorAll<HTMLButtonElement>("button").forEach(other => {
-      other.setAttribute("aria-pressed", String(other === button));
-    });
+    syncInputs();
     renderAll();
   });
+
+  const onDateChange = () => {
+    const start = startEl.value || minDate;
+    const end = endEl.value || maxDate;
+    rangeStart = start <= end ? start : end;
+    rangeEnd = start <= end ? end : start;
+    activePreset = null;
+    limit = PAGE_SIZE;
+    syncInputs();
+    renderAll();
+  };
+
+  startEl.addEventListener("change", onDateChange);
+  endEl.addEventListener("change", onDateChange);
 
   catsEl.addEventListener("click", event => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-cat]");
@@ -816,6 +983,6 @@ const syncedLabel = data.syncedAt
     renderList();
   });
 
-  renderYears();
-  renderAll();
+  renderMonths();
+  applyPreset("month");
 </script>

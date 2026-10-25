@@ -17,7 +17,7 @@ export const NAV_LINKS = [
   { href: "/dty_daily_diary/", label: "日记" },
   { href: "/dty_daily_feedback/", label: "每日时间" },
   { href: "/dty_quarter_okr/", label: "OKR" },
-  { href: "/dty_daily_expense_v2/", label: "收支" }
+  { href: "/dty_daily_expense_v2/", label: "支出" }
 ];
 
 export const SOCIAL_LINKS = [

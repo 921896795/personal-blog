@@ -29,9 +29,22 @@ const data: Payload = existsSync(dataPath)
 const money = (value: number) =>
   `¥${value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const span = data.stats.start && data.stats.end
-  ? `${data.stats.start.slice(0, 7)} ~ ${data.stats.end.slice(0, 7)}`
-  : "—";
+const monthEnd = (month: string) => {
+  const [year, index] = month.split("-").map(Number);
+  const last = new Date(year, index, 0);
+  return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
+};
+
+// 首屏按默认区间（最新数据所在月）渲染，与客户端初始筛选一致
+const latestMonth = data.entries.map(entry => entry.d).sort().pop()?.slice(0, 7) ?? "";
+const initialStart = latestMonth ? `${latestMonth}-01` : "";
+const initialEnd = latestMonth ? monthEnd(latestMonth) : "";
+const initialEntries = initialStart
+  ? data.entries.filter(entry => entry.d >= initialStart && entry.d <= initialEnd!)
+  : [];
+const initialTotal = initialEntries.reduce((sum, entry) => sum + entry.a, 0);
+const initialDays = initialEnd ? Number(initialEnd.slice(8, 10)) : 0;
+const initialSpan = latestMonth ? `${latestMonth} ~ ${latestMonth}` : "—";
 
 const syncedLabel = data.syncedAt
   ? new Intl.DateTimeFormat("zh-CN", {
@@ -53,19 +66,19 @@ const syncedLabel = data.syncedAt
     <dl class="exp-stats">
       <div>
         <dt>累计支出</dt>
-        <dd>{money(data.stats.total)}</dd>
+        <dd id="exp-stat-total">{money(initialTotal)}</dd>
       </div>
       <div>
         <dt>记录笔数</dt>
-        <dd>{data.stats.count}<small>笔</small></dd>
+        <dd id="exp-stat-count">{initialEntries.length}<small>笔</small></dd>
       </div>
       <div>
-        <dt>月均支出</dt>
-        <dd>{money(data.stats.avgMonthly)}</dd>
+        <dt>日均支出</dt>
+        <dd id="exp-stat-avg">{money(initialDays ? initialTotal / initialDays : 0)}</dd>
       </div>
       <div>
         <dt>跨度</dt>
-        <dd class="exp-span">{span}<small>{data.stats.months} 个月</small></dd>
+        <dd class="exp-span" id="exp-stat-span">{initialSpan}<small>{latestMonth ? 1 : 0} 个月</small></dd>
       </div>
     </dl>
   </section>
@@ -702,6 +715,10 @@ const syncedLabel = data.syncedAt
   const startEl = document.getElementById("exp-start") as HTMLInputElement;
   const endEl = document.getElementById("exp-end") as HTMLInputElement;
   const summaryEl = document.getElementById("exp-summary") as HTMLElement;
+  const statTotalEl = document.getElementById("exp-stat-total") as HTMLElement;
+  const statCountEl = document.getElementById("exp-stat-count") as HTMLElement;
+  const statAvgEl = document.getElementById("exp-stat-avg") as HTMLElement;
+  const statSpanEl = document.getElementById("exp-stat-span") as HTMLElement;
   const chartEl = document.getElementById("exp-chart") as HTMLElement;
   const chartTitleEl = document.getElementById("exp-chart-title") as HTMLElement;
   const chartSubEl = document.getElementById("exp-chart-sub") as HTMLElement;
@@ -735,6 +752,18 @@ const syncedLabel = data.syncedAt
   const monthEnd = (month: string) => {
     const [year, index] = month.split("-").map(Number);
     return toISO(new Date(year, index, 0));
+  };
+  const monthCount = (start: string, end: string) => {
+    const [startYear, startMonth] = start.split("-").map(Number);
+    const [endYear, endMonth] = end.split("-").map(Number);
+    return Math.max(1, (endYear - startYear) * 12 + (endMonth - startMonth) + 1);
+  };
+  const dayCount = (start: string, end: string) => {
+    const [startYear, startMonth, startDay] = start.split("-").map(Number);
+    const [endYear, endMonth, endDay] = end.split("-").map(Number);
+    const startDate = new Date(startYear, startMonth - 1, startDay);
+    const endDate = new Date(endYear, endMonth - 1, endDay);
+    return Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
   };
   const weekStart = (value: string) => shiftDays(value, -((toDate(value).getDay() + 6) % 7));
 
@@ -789,6 +818,19 @@ const syncedLabel = data.syncedAt
       `<option value="all">全部</option>`,
       ...months.map(month => `<option value="${month}">${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</option>`)
     ].join("");
+  }
+
+  function renderStats() {
+    const list = rangeList();
+    const total = list.reduce((sum, entry) => sum + entry.a, 0);
+    const hasRange = Boolean(rangeStart && rangeEnd);
+    const days = hasRange ? dayCount(rangeStart, rangeEnd) : 0;
+    const months = hasRange ? monthCount(rangeStart, rangeEnd) : 0;
+
+    statTotalEl.textContent = money(total);
+    statCountEl.innerHTML = `${list.length}<small>笔</small>`;
+    statAvgEl.textContent = money(days ? total / days : 0);
+    statSpanEl.innerHTML = `${hasRange ? rangeStart.slice(0, 7) : "—"} ~ ${hasRange ? rangeEnd.slice(0, 7) : "—"}<small>${months} 个月</small>`;
   }
 
   function renderSummary() {
@@ -927,6 +969,7 @@ const syncedLabel = data.syncedAt
   }
 
   function renderAll() {
+    renderStats();
     renderSummary();
     renderChart();
     renderCats();

@@ -1,33 +1,585 @@
 ---
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import PostCard from "@/components/PostCard.astro";
-import { getPublishedPosts } from "@/utils/posts";
+import { getPublishedPosts, formatDate, getPostSlug } from "@/utils/posts";
+
+type Snapshot = {
+  syncedAt?: string;
+  stats?: Record<string, number | string | null | undefined>;
+};
+
+const readSnapshot = (file: string): Snapshot => {
+  const path = resolve(process.cwd(), "public/data", file);
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
+};
+
+const diary = readSnapshot("daily-diary.json");
+const books = readSnapshot("books.json");
+const movies = readSnapshot("movies.json");
+const exercise = readSnapshot("exercise.json");
+const feedback = readSnapshot("daily-feedback.json");
+const expense = readSnapshot("daily-expense.json");
+const trade = readSnapshot("trade-review.json");
+const week = readSnapshot("week-return.json");
+const okr = readSnapshot("quarter-okr.json");
 
 const posts = await getPublishedPosts();
 const latestPosts = posts.slice(0, 4);
+
+const formatNumber = (
+  value: number | string | null | undefined,
+  digits = 0
+) =>
+  new Intl.NumberFormat("zh-CN", { maximumFractionDigits: digits }).format(
+    Number(value) || 0
+  );
+
+const metrics = [
+  { label: "日记", value: formatNumber(diary.stats?.total), unit: "篇" },
+  { label: "读书", value: formatNumber(books.stats?.total), unit: "本" },
+  { label: "观影", value: formatNumber(movies.stats?.total), unit: "部" },
+  { label: "运动", value: formatNumber(exercise.stats?.distance, 1), unit: "km" },
+  { label: "时间记录", value: formatNumber(feedback.stats?.hours), unit: "小时" }
+];
+
+const syncedLabel = movies.syncedAt
+  ? new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(new Date(movies.syncedAt))
+  : "—";
+
+const archiveLinks = [
+  {
+    href: "/dty_trade_review/",
+    kicker: "Investing",
+    title: "个股复盘",
+    desc: "每一笔交易都留下反思，回看自己在什么情况下做对了。",
+    meta: `${formatNumber(trade.stats?.total)} 笔 · ${formatNumber(trade.stats?.stocks)} 只个股`
+  },
+  {
+    href: "/dty_week_return/",
+    kicker: "Returns",
+    title: "周收益",
+    desc: "按周汇总账户盈亏，看清起伏而不是被单日波动带走。",
+    meta: `${formatNumber(week.stats?.accounts)} 个账户 · ${formatNumber(week.stats?.weeks)} 周`
+  }
+];
 ---
 
 <BaseLayout>
-  <section class="container hero">
-    <div>
-      <p class="eyebrow">Personal Blog / Notes / Projects</p>
-      <h1>把工作里的观察，沉淀成长期可复用的知识。</h1>
-      <p class="lead">
-        这里记录数据建模、业务分析、产品思考、技术实践，也存放一些正在长出来的个人项目。
-      </p>
+  <section class="container hi-hero">
+    <p class="hi-eyebrow">Personal Archive</p>
+    <h1 class="hi-title">
+      把时间，<br />
+      <span class="hi-title-dim">沉淀成看得见的积累。</span>
+    </h1>
+    <p class="hi-lead">
+      工作、阅读、运动、投资与日常开销，都用数据记下来。慢慢看清自己的长期轨迹，而不是被当下的一两天带走。
+    </p>
+    <div class="hi-actions">
+      <a class="hi-btn hi-btn-primary" href="/posts/">阅读文章</a>
+      <a class="hi-btn hi-btn-ghost" href="#archive">浏览数据档案</a>
+    </div>
+    <p class="hi-updated">数据更新于 {syncedLabel}</p>
+  </section>
+
+  <section class="container hi-metrics-wrap">
+    <dl class="hi-metrics">
+      {
+        metrics.map(metric => (
+          <div>
+            <dt>{metric.label}</dt>
+            <dd>
+              {metric.value}
+              <small>{metric.unit}</small>
+            </dd>
+          </div>
+        ))
+      }
+    </dl>
+  </section>
+
+  <section class="container hi-section" id="archive">
+    <header class="hi-section-head">
+      <div>
+        <p class="hi-eyebrow">Data Archive</p>
+        <h2>长期记录的几个切面</h2>
+      </div>
+      <p class="hi-section-note">每月同步，持续更新</p>
+    </header>
+
+    <div class="hi-grid">
+      {
+        archiveLinks.map(card => (
+          <a class="hi-card" href={card.href}>
+            <span class="hi-card-kicker">{card.kicker}</span>
+            <h3>{card.title}</h3>
+            <p>{card.desc}</p>
+            <span class="hi-card-meta">
+              {card.meta}
+              <i aria-hidden="true">→</i>
+            </span>
+          </a>
+        ))
+      }
+
+      <div class="hi-card">
+        <span class="hi-card-kicker">Personal</span>
+        <h3>个人归档</h3>
+        <p>日记、读书、运动、影视，四条彼此独立的长期记录线。</p>
+        <div class="hi-chips">
+          <a href="/dty_daily_diary/">日记<em>{formatNumber(diary.stats?.total)}</em></a>
+          <a href="/dty_books/">读书<em>{formatNumber(books.stats?.total)}</em></a>
+          <a href="/dty_exercise/">运动<em>{formatNumber(exercise.stats?.total)}</em></a>
+          <a href="/dty_movie/">影视<em>{formatNumber(movies.stats?.total)}</em></a>
+        </div>
+      </div>
+
+      <a class="hi-card" href="/dty_daily_feedback/">
+        <span class="hi-card-kicker">Time</span>
+        <h3>每日时间</h3>
+        <p>每天的时间去了哪里，用累计小时和分布说话。</p>
+        <span class="hi-card-meta">
+          {formatNumber(feedback.stats?.days)} 天 · {formatNumber(feedback.stats?.hours)} 小时
+          <i aria-hidden="true">→</i>
+        </span>
+      </a>
+
+      <a class="hi-card" href="/dty_daily_expense_v2/">
+        <span class="hi-card-kicker">Expense</span>
+        <h3>支出</h3>
+        <p>按月看消费结构与节奏，月均支出是最诚实的那条线。</p>
+        <span class="hi-card-meta">
+          累计 ¥{formatNumber(expense.stats?.total)} · 月均 ¥{formatNumber(expense.stats?.avgMonthly)}
+          <i aria-hidden="true">→</i>
+        </span>
+      </a>
+
+      <a class="hi-card" href="/dty_quarter_okr/">
+        <span class="hi-card-kicker">Goals</span>
+        <h3>季度 OKR</h3>
+        <p>把想做的事拆成目标和关键结果，按季度推进。</p>
+        <span class="hi-card-meta">
+          {formatNumber(okr.stats?.objectives)} 个目标 · {formatNumber(okr.stats?.krs)} 个 KR
+          <i aria-hidden="true">→</i>
+        </span>
+      </a>
     </div>
   </section>
 
-  <section class="container section">
-    <div class="section-head">
+  <section class="container hi-section">
+    <header class="hi-section-head">
       <div>
+        <p class="hi-eyebrow">Writing</p>
         <h2>最新文章</h2>
-        <p class="muted">持续写，慢慢把零散经验连成体系。</p>
       </div>
-      <a href="/posts/">全部文章</a>
-    </div>
-    <div class="post-list">
-      {latestPosts.map(post => <PostCard post={post} />)}
-    </div>
+      <a class="hi-more" href="/posts/">全部文章 <i aria-hidden="true">→</i></a>
+    </header>
+
+    {
+      latestPosts.length ? (
+        <div class="hi-posts">
+          {latestPosts.map(post => (
+            <a class="hi-post" href={`/posts/${getPostSlug(post)}/`}>
+              <time datetime={post.data.pubDatetime.toISOString()}>{formatDate(post.data.pubDatetime)}</time>
+              <div>
+                <h3>{post.data.title}</h3>
+                <p class="muted">{post.data.description}</p>
+              </div>
+              <i class="hi-post-arrow" aria-hidden="true">→</i>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p class="muted">还没有发布文章。</p>
+      )
+    }
   </section>
 </BaseLayout>
+
+<style>
+  .hi-hero {
+    position: relative;
+    padding: 84px 0 56px;
+  }
+
+  .hi-hero::before {
+    content: "";
+    position: absolute;
+    top: -140px;
+    right: -10%;
+    z-index: -1;
+    width: 560px;
+    height: 560px;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--accent), transparent 82%),
+      transparent 68%
+    );
+    pointer-events: none;
+  }
+
+  .hi-eyebrow {
+    margin: 0 0 18px;
+    color: var(--accent-strong);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+
+  .hi-title {
+    max-width: 15ch;
+    margin: 0;
+    font-size: clamp(2.7rem, 7.4vw, 5.4rem);
+    font-weight: 800;
+    letter-spacing: -0.045em;
+    line-height: 1.04;
+  }
+
+  .hi-title-dim {
+    color: var(--muted);
+  }
+
+  .hi-lead {
+    max-width: 640px;
+    margin: 26px 0 0;
+    color: var(--muted);
+    font-size: clamp(1rem, 1.6vw, 1.16rem);
+    line-height: 1.8;
+  }
+
+  .hi-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 34px;
+  }
+
+  .hi-btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 46px;
+    padding: 0 26px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-decoration: none;
+    transition: transform 0.18s, background 0.18s, border-color 0.18s;
+  }
+
+  .hi-btn:hover {
+    transform: translateY(-1px);
+  }
+
+  .hi-btn-primary {
+    background: var(--accent);
+    color: var(--surface-strong);
+  }
+
+  .hi-btn-primary:hover {
+    background: var(--accent-strong);
+    color: var(--surface-strong);
+  }
+
+  .hi-btn-ghost {
+    border-color: var(--line);
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  .hi-btn-ghost:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .hi-updated {
+    margin: 22px 0 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+  }
+
+  .hi-metrics-wrap {
+    padding-bottom: 8px;
+  }
+
+  .hi-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    margin: 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--line);
+  }
+
+  .hi-metrics div {
+    display: grid;
+    gap: 6px;
+    padding: 22px 24px;
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--accent), transparent 95%),
+        transparent 70%
+      ),
+      var(--surface);
+  }
+
+  .hi-metrics dt {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+  }
+
+  .hi-metrics dd {
+    margin: 0;
+    font-size: clamp(1.7rem, 3vw, 2.3rem);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+
+  .hi-metrics dd small {
+    margin-left: 5px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .hi-section {
+    padding-top: 74px;
+  }
+
+  .hi-section-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 24px;
+    align-items: end;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+
+  .hi-section-head .hi-eyebrow {
+    margin-bottom: 10px;
+  }
+
+  .hi-section-head h2 {
+    margin: 0;
+    font-size: clamp(1.6rem, 3.4vw, 2.3rem);
+    letter-spacing: -0.03em;
+  }
+
+  .hi-section-note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+  }
+
+  .hi-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .hi-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 26px 26px 24px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background:
+      radial-gradient(
+        120% 120% at 0% 0%,
+        color-mix(in srgb, var(--accent), transparent 94%),
+        transparent 60%
+      ),
+      var(--surface);
+    color: inherit;
+    text-decoration: none;
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+  }
+
+  a.hi-card:hover {
+    border-color: color-mix(in srgb, var(--accent), var(--line) 45%);
+    box-shadow: 0 16px 36px color-mix(in srgb, #000, transparent 92%);
+    transform: translateY(-2px);
+  }
+
+  .hi-card-kicker {
+    color: var(--accent-strong);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  .hi-card h3 {
+    margin: 0;
+    font-size: 1.32rem;
+    letter-spacing: -0.02em;
+  }
+
+  .hi-card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.94rem;
+    line-height: 1.7;
+  }
+
+  .hi-card-meta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: auto;
+    padding-top: 14px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hi-card-meta i {
+    color: var(--accent-strong);
+    font-style: normal;
+    transition: transform 0.2s;
+  }
+
+  .hi-card:hover .hi-card-meta i {
+    transform: translateX(3px);
+  }
+
+  .hi-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 14px;
+  }
+
+  .hi-chips a {
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 6px 13px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-strong);
+    color: var(--text);
+    font-size: 0.86rem;
+    text-decoration: none;
+    transition: border-color 0.18s, color 0.18s;
+  }
+
+  .hi-chips a:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .hi-chips em {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hi-more {
+    color: var(--accent-strong);
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .hi-more i {
+    font-style: normal;
+  }
+
+  .hi-posts {
+    display: grid;
+    border-top: 1px solid var(--line);
+  }
+
+  .hi-post {
+    display: grid;
+    grid-template-columns: 132px minmax(0, 1fr) 32px;
+    gap: 20px;
+    align-items: center;
+    padding: 22px 8px;
+    border-bottom: 1px solid var(--line);
+    text-decoration: none;
+    transition: background 0.18s;
+  }
+
+  .hi-post:hover {
+    background: color-mix(in srgb, var(--accent), transparent 96%);
+  }
+
+  .hi-post time {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hi-post h3 {
+    margin: 0;
+    font-size: 1.12rem;
+    letter-spacing: -0.01em;
+  }
+
+  .hi-post p {
+    margin: 4px 0 0;
+    font-size: 0.9rem;
+  }
+
+  .hi-post-arrow {
+    color: var(--accent-strong);
+    font-style: normal;
+    text-align: right;
+    transition: transform 0.2s;
+  }
+
+  .hi-post:hover .hi-post-arrow {
+    transform: translateX(3px);
+  }
+
+  @media (max-width: 760px) {
+    .hi-hero {
+      padding: 56px 0 40px;
+    }
+
+    .hi-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .hi-post {
+      grid-template-columns: 1fr 24px;
+      gap: 6px 14px;
+    }
+
+    .hi-post time {
+      grid-column: 1;
+    }
+
+    .hi-post > div {
+      grid-column: 1;
+    }
+
+    .hi-post-arrow {
+      grid-row: 1 / span 2;
+      grid-column: 2;
+      align-self: center;
+    }
+  }
+</style>

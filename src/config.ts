@@ -13,9 +13,10 @@ export type NavItem = {
 };
 
 export const NAV_LINKS: NavItem[] = [
+  { href: "/", label: "首页" },
+  { href: "/posts/", label: "文章" },
   { href: "/dty_trade_review/", label: "个股复盘" },
   { href: "/dty_week_return/", label: "周收益" },
-  { href: "/", label: "首页" },
   { href: "/reading-notes/", label: "读书笔记" },
   {
     label: "个人归档",

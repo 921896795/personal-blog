@@ -414,6 +414,149 @@ html.auth-locked body {
   font-size: 0.92rem;
 }
 
+/* 读书笔记 */
+.rn-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.rn-toolbar button {
+  padding: 9px 24px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--surface-strong);
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+
+.rn-toolbar button:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.rn-count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.rn-count select {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.rn-hint {
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+.rn-hint kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface);
+  font-size: 0.82rem;
+}
+
+.rn-cards {
+  display: grid;
+  gap: 16px;
+}
+
+.rn-card {
+  display: grid;
+  gap: 10px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  animation: rn-rise 0.32s ease both;
+}
+
+@keyframes rn-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rn-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rn-book {
+  font-weight: 700;
+}
+
+.rn-author {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.rn-badge {
+  margin-left: auto;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.rn-note-title {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--accent);
+  color: var(--accent-strong);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.rn-content {
+  font-size: 0.98rem;
+}
+
+.rn-content p {
+  margin: 0 0 8px;
+}
+
+.rn-content p:last-child {
+  margin-bottom: 0;
+}
+
+.rn-foot {
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+@media (min-width: 860px) {
+  .rn-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* pagination */
 .pagination {
   display: flex;

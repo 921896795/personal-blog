@@ -1,0 +1,134 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+---
+
+<BaseLayout title="读书笔记" description="从读书笔记里随机抽取的要点卡片">
+  <section class="container">
+    <p class="eyebrow">Reading Notes</p>
+    <h1>读书笔记</h1>
+    <p class="lead">
+      从 <b id="rn-books">0</b> 本书、<b id="rn-notes">0</b> 条要点里随机抽取，换一批看看。
+    </p>
+  </section>
+
+  <section class="container section">
+    <div class="rn-toolbar">
+      <button id="rn-shuffle" type="button">换一批</button>
+      <label class="rn-count">
+        显示
+        <select id="rn-count">
+          <option value="3">3</option>
+          <option value="5" selected>5</option>
+          <option value="8">8</option>
+          <option value="12">12</option>
+        </select>
+        条
+      </label>
+      <span class="rn-hint muted">按 <kbd>空格</kbd> 也可以换一批</span>
+    </div>
+
+    <div class="rn-cards" id="rn-cards"></div>
+    <p class="muted" id="rn-status">正在加载笔记…</p>
+  </section>
+</BaseLayout>
+
+<script>
+  type Note = {
+    book_title: string;
+    author: string | null;
+    category: string | null;
+    note_title: string | null;
+    note_content: string;
+    note_seq: number;
+    source_file: string | null;
+  };
+
+  const cards = document.getElementById("rn-cards") as HTMLElement;
+  const status = document.getElementById("rn-status") as HTMLElement;
+  const countSelect = document.getElementById("rn-count") as HTMLSelectElement;
+  const shuffle = document.getElementById("rn-shuffle") as HTMLButtonElement;
+  const bookCount = document.getElementById("rn-books") as HTMLElement;
+  const noteCount = document.getElementById("rn-notes") as HTMLElement;
+
+  let notes: Note[] = [];
+
+  const esc = (s: string) =>
+    s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
+
+  /** **加粗** → <strong>，单个换行 → <br>，空行 → 分段 */
+  const render = (s: string) =>
+    esc(s)
+      .split(/\n{2,}/)
+      .map(
+        (par) =>
+          "<p>" +
+          par
+            .split("\n")
+            .map((line) => line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"))
+            .join("<br>") +
+          "</p>"
+      )
+      .join("");
+
+  function pick(): Note[] {
+    const n = Math.min(parseInt(countSelect.value, 10), notes.length);
+    const idx = notes.map((_, i) => i);
+    for (let i = idx.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [idx[i], idx[j]] = [idx[j], idx[i]];
+    }
+    return idx.slice(0, n).map((i) => notes[i]);
+  }
+
+  function draw() {
+    const list = pick();
+    if (!list.length) return;
+    cards.innerHTML = list
+      .map(
+        (n, i) => `
+      <article class="rn-card" style="animation-delay:${i * 50}ms">
+        <div class="rn-card-head">
+          <span class="rn-book">${esc(n.book_title || "未命名")}</span>
+          ${n.author ? `<span class="rn-author">${esc(n.author)}</span>` : ""}
+          ${n.category ? `<span class="rn-badge">${esc(n.category)}</span>` : ""}
+        </div>
+        ${n.note_title ? `<p class="rn-note-title">${esc(n.note_title)}</p>` : ""}
+        <div class="rn-content">${render(n.note_content)}</div>
+        <div class="rn-foot">${esc(n.source_file || "")} · 第 ${n.note_seq} 条</div>
+      </article>`
+      )
+      .join("");
+  }
+
+  async function init() {
+    try {
+      const res = await fetch("/data/reading-notes.json");
+      if (!res.ok) throw new Error(String(res.status));
+      notes = (await res.json()) as Note[];
+    } catch (err) {
+      status.textContent = "笔记数据加载失败，请刷新重试。";
+      return;
+    }
+
+    if (!notes.length) {
+      status.textContent = "还没有笔记。";
+      return;
+    }
+
+    status.hidden = true;
+    bookCount.textContent = String(new Set(notes.map((n) => n.book_title)).size);
+    noteCount.textContent = String(notes.length);
+    draw();
+
+    shuffle.addEventListener("click", draw);
+    countSelect.addEventListener("change", draw);
+    document.addEventListener("keydown", (event) => {
+      if (event.code === "Space" && !/SELECT|INPUT|BUTTON/.test((document.activeElement as HTMLElement)?.tagName ?? "")) {
+        event.preventDefault();
+        draw();
+      }
+    });
+  }
+
+  init();
+</script>

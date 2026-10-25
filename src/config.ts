@@ -12,6 +12,7 @@ export const NAV_LINKS = [
   { href: "/archives/", label: "归档" },
   { href: "/tags/", label: "标签" },
   { href: "/projects/", label: "项目" },
+  { href: "/reading-notes/", label: "读书笔记" },
   { href: "/about/", label: "关于" }
 ];
 

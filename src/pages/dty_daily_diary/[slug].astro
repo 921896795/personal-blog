@@ -1,0 +1,31 @@
+---
+import { getCollection, render } from "astro:content";
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { formatDate } from "@/utils/posts";
+import { getDiarySlug, getDiaryTitle } from "@/utils/diary";
+
+export async function getStaticPaths() {
+  const entries = await getCollection("diary", ({ data }) => !data.draft);
+
+  return entries.map(entry => ({
+    params: { slug: getDiarySlug(entry) },
+    props: { entry }
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const title = getDiaryTitle(entry);
+---
+
+<BaseLayout title={title} description={`日记 · ${formatDate(entry.data.date)}`}>
+  <article class="container">
+    <header class="article-header">
+      <p class="eyebrow">{formatDate(entry.data.date)}</p>
+      <h1>{title}</h1>
+    </header>
+    <div class="article-content">
+      <Content />
+    </div>
+  </article>
+</BaseLayout>

@@ -13,7 +13,8 @@ export const NAV_LINKS = [
   { href: "/tags/", label: "标签" },
   { href: "/projects/", label: "项目" },
   { href: "/reading-notes/", label: "读书笔记" },
-  { href: "/about/", label: "关于" }
+  { href: "/about/", label: "关于" },
+  { href: "/dty_daily_diary/", label: "日记" }
 ];
 
 export const SOCIAL_LINKS = [

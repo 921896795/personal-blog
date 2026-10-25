@@ -13,4 +13,13 @@ const posts = defineCollection({
   })
 });
 
-export const collections = { posts };
+const diary = defineCollection({
+  type: "content",
+  schema: z.object({
+    title: z.string().optional(),
+    date: z.coerce.date(),
+    draft: z.boolean().default(false)
+  })
+});
+
+export const collections = { posts, diary };

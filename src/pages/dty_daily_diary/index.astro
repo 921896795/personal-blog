@@ -1,0 +1,34 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { formatDate } from "@/utils/posts";
+import { getDiaryEntries, getDiarySlug, getDiaryTitle } from "@/utils/diary";
+
+const entries = await getDiaryEntries();
+---
+
+<BaseLayout title="日记" description="日常记录与流水账">
+  <section class="container">
+    <p class="eyebrow">Diary</p>
+    <h1>日记</h1>
+    <p class="lead">
+      不按主题归档，只按时间往下写。共 {entries.length} 篇。
+    </p>
+  </section>
+
+  <section class="container section">
+    {entries.length === 0 ? (
+      <p class="muted">还没有日记，把 Markdown 文件放进 src/content/diary/ 就会出现。</p>
+    ) : (
+      <div class="post-list">
+        {entries.map(entry => (
+          <a class="post-card" href={`/dty_daily_diary/${getDiarySlug(entry)}/`}>
+            <div class="post-meta">
+              <time datetime={entry.data.date.toISOString()}>{formatDate(entry.data.date)}</time>
+            </div>
+            <h3>{getDiaryTitle(entry)}</h3>
+          </a>
+        ))}
+      </div>
+    )}
+  </section>
+</BaseLayout>

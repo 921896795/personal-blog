@@ -1,0 +1,821 @@
+---
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import BaseLayout from "@/layouts/BaseLayout.astro";
+
+type Entry = { d: string; a: number; c: string; n: string | null };
+type Payload = {
+  syncedAt: string;
+  stats: {
+    total: number;
+    count: number;
+    months: number;
+    start: string | null;
+    end: string | null;
+    avgMonthly: number;
+  };
+  entries: Entry[];
+};
+
+const dataPath = resolve(process.cwd(), "public/data/daily-expense.json");
+const data: Payload = existsSync(dataPath)
+  ? JSON.parse(readFileSync(dataPath, "utf8"))
+  : {
+      syncedAt: "",
+      stats: { total: 0, count: 0, months: 0, start: null, end: null, avgMonthly: 0 },
+      entries: []
+    };
+
+const money = (value: number) =>
+  `¥${value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const span = data.stats.start && data.stats.end
+  ? `${data.stats.start.slice(0, 7)} ~ ${data.stats.end.slice(0, 7)}`
+  : "—";
+
+const syncedLabel = data.syncedAt
+  ? new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(data.syncedAt))
+  : "—";
+---
+
+<BaseLayout title="收支" description="按日期记录的支出账本">
+  <section class="container exp-hero">
+    <p class="eyebrow">Expense Ledger</p>
+    <h1 class="exp-title">收支</h1>
+    <p class="lead exp-lead">每一笔花出去的钱，都记在这里。</p>
+
+    <dl class="exp-stats">
+      <div>
+        <dt>累计支出</dt>
+        <dd>{money(data.stats.total)}</dd>
+      </div>
+      <div>
+        <dt>记录笔数</dt>
+        <dd>{data.stats.count}<small>笔</small></dd>
+      </div>
+      <div>
+        <dt>月均支出</dt>
+        <dd>{money(data.stats.avgMonthly)}</dd>
+      </div>
+      <div>
+        <dt>跨度</dt>
+        <dd class="exp-span">{span}<small>{data.stats.months} 个月</small></dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="container">
+    <div class="exp-filter">
+      <div class="exp-chips" id="exp-years" role="group" aria-label="按年份筛选"></div>
+      <p class="exp-summary" id="exp-summary">—</p>
+    </div>
+  </section>
+
+  <section class="container exp-panel-wrap">
+    <div class="exp-panel">
+      <header class="exp-panel-head">
+        <div>
+          <h2>月度趋势</h2>
+          <p class="muted">每个月的支出总额，按年份着色</p>
+        </div>
+        <span class="exp-meta" id="exp-chart-meta">—</span>
+      </header>
+      <div class="exp-chart-wrap">
+        <div class="exp-chart" id="exp-chart"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="container exp-panel-wrap">
+    <div class="exp-panel">
+      <header class="exp-panel-head">
+        <div>
+          <h2>分类构成</h2>
+          <p class="muted">点击分类可隐藏或恢复，趋势图与流水会同步刷新</p>
+        </div>
+        <span class="exp-meta" id="exp-cat-meta">—</span>
+      </header>
+      <div class="exp-cats" id="exp-cats"></div>
+    </div>
+  </section>
+
+  <section class="container">
+    <div class="exp-list" id="exp-list">
+      <p class="exp-empty">正在载入…</p>
+    </div>
+
+    <div class="exp-more">
+      <button type="button" id="exp-more" hidden>加载更多</button>
+    </div>
+
+    <p class="exp-source">
+      数据来源：MySQL 表 <code>dty_daily_expense_v2</code> · 最近同步 {syncedLabel}
+    </p>
+  </section>
+</BaseLayout>
+
+<script type="application/json" id="exp-data" set:html={JSON.stringify(data).replace(/</g, "\\u003c")}></script>
+
+<style is:global>
+  .exp-hero {
+    padding-bottom: 10px;
+  }
+
+  .exp-title {
+    font-size: clamp(2.6rem, 9vw, 5rem);
+    letter-spacing: -0.02em;
+  }
+
+  .exp-lead {
+    margin-top: 14px;
+  }
+
+  .exp-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin: 26px 0 0;
+    padding: 0;
+  }
+
+  .exp-stats div {
+    position: relative;
+    display: grid;
+    gap: 2px;
+    padding: 14px 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .exp-stats div::after {
+    content: "";
+    position: absolute;
+    inset: auto -30% -60% auto;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent), transparent 80%), transparent 70%);
+  }
+
+  .exp-stats dt {
+    color: var(--muted);
+    font-size: 0.76rem;
+    letter-spacing: 0.16em;
+  }
+
+  .exp-stats dd {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+  }
+
+  .exp-stats dd small {
+    margin-left: 5px;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .exp-stats .exp-span {
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .exp-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    align-items: center;
+    margin: 24px 0 18px;
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .exp-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .exp-chips button {
+    padding: 6px 15px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+
+  .exp-chips button:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .exp-chips button[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--surface-strong);
+    font-weight: 700;
+  }
+
+  .exp-summary {
+    margin: 0 0 0 auto;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .exp-summary b {
+    color: var(--text);
+  }
+
+  .exp-panel-wrap {
+    margin-bottom: 16px;
+  }
+
+  .exp-panel {
+    padding: 20px 22px 22px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background:
+      radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent), transparent 93%), transparent 55%),
+      var(--surface);
+  }
+
+  .exp-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .exp-panel-head h2 {
+    margin: 0 0 4px;
+    font-size: 1.15rem;
+  }
+
+  .exp-panel-head p {
+    margin: 0;
+    font-size: 0.84rem;
+  }
+
+  .exp-meta {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .exp-chart-wrap {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .exp-chart {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+    min-height: 156px;
+    padding-top: 8px;
+  }
+
+  .exp-col {
+    display: flex;
+    flex: 1 0 24px;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 24px;
+    height: 148px;
+    text-align: center;
+  }
+
+  .exp-col-bar {
+    width: 100%;
+    min-height: 3px;
+    border-radius: 5px 5px 2px 2px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--yc), transparent 20%), var(--yc));
+    transition: filter 0.15s, height 0.2s;
+  }
+
+  .exp-col:hover .exp-col-bar {
+    filter: saturate(1.25) brightness(1.06);
+  }
+
+  .exp-col-label {
+    color: var(--muted);
+    font-size: 0.66rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .exp-col-year {
+    color: color-mix(in srgb, var(--muted), transparent 35%);
+    font-size: 0.58rem;
+    line-height: 1;
+  }
+
+  .exp-cats {
+    display: grid;
+    gap: 4px;
+  }
+
+  .exp-cat {
+    display: grid;
+    grid-template-columns: 10px minmax(84px, 110px) minmax(0, 1fr) 104px 52px;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: none;
+    color: var(--text);
+    font-size: 0.88rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  }
+
+  .exp-cat:hover {
+    border-color: var(--line);
+    background: var(--surface-strong);
+  }
+
+  .exp-cat[aria-pressed="false"] {
+    opacity: 0.42;
+  }
+
+  .exp-cat .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: var(--c);
+  }
+
+  .exp-cat .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .exp-cat .track {
+    display: block;
+    height: 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--line), transparent 40%);
+    overflow: hidden;
+  }
+
+  .exp-cat .track i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--c);
+  }
+
+  .exp-cat .amt {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .exp-cat .pct {
+    color: var(--muted);
+    font-size: 0.76rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .exp-list {
+    display: grid;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .exp-month {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 11px 20px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface-strong), transparent 25%);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+  }
+
+  .exp-month:first-child {
+    border-top: none;
+  }
+
+  .exp-month b {
+    margin-left: auto;
+    color: var(--text);
+    font-size: 0.84rem;
+    letter-spacing: normal;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .exp-row {
+    display: grid;
+    grid-template-columns: 62px 118px minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    padding: 12px 20px;
+    border-bottom: 1px solid color-mix(in srgb, var(--line), transparent 45%);
+    transition: background 0.15s;
+  }
+
+  .exp-row:last-child {
+    border-bottom: none;
+  }
+
+  .exp-row:hover {
+    background: color-mix(in srgb, var(--accent), transparent 95%);
+  }
+
+  .exp-date {
+    display: grid;
+    gap: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .exp-date b {
+    font-size: 0.98rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .exp-date span {
+    color: var(--muted);
+    font-size: 0.68rem;
+  }
+
+  .exp-tag {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    justify-self: start;
+    max-width: 100%;
+    padding: 3px 10px;
+    border: 1px solid color-mix(in srgb, var(--c), transparent 58%);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--c), transparent 91%);
+    color: var(--c);
+    font-size: 0.76rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .exp-tag i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--c);
+  }
+
+  .exp-note {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 0.84rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .exp-amount {
+    font-size: 1rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .exp-empty {
+    padding: 40px 0;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .exp-more {
+    display: flex;
+    justify-content: center;
+    margin-top: 18px;
+  }
+
+  .exp-more button {
+    padding: 9px 26px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+
+  .exp-more button:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .exp-source {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .exp-source code {
+    color: var(--accent-strong);
+  }
+
+  @media (max-width: 700px) {
+    .exp-row {
+      grid-template-columns: 56px minmax(0, 1fr) auto;
+      grid-template-areas:
+        "date note amount"
+        "date tag amount";
+      gap: 4px 12px;
+      padding: 12px 14px;
+    }
+
+    .exp-date {
+      grid-area: date;
+    }
+
+    .exp-tag {
+      grid-area: tag;
+    }
+
+    .exp-note {
+      grid-area: note;
+    }
+
+    .exp-amount {
+      grid-area: amount;
+    }
+
+    .exp-cat {
+      grid-template-columns: 10px minmax(64px, 1fr) 84px 46px;
+    }
+
+    .exp-cat .track {
+      display: none;
+    }
+
+    .exp-summary {
+      margin-left: 0;
+    }
+
+    .exp-panel {
+      padding: 16px;
+    }
+  }
+</style>
+
+<script>
+  type Entry = { d: string; a: number; c: string; n: string | null };
+
+  const CATS: Record<string, { label: string; color: string }> = {
+    d_food: { label: "餐饮", color: "#c98a4b" },
+    d_bb_share: { label: "和 bb 一起", color: "#b36179" },
+    d_bb_only: { label: "bb 专属", color: "#8f5f7a" },
+    d_commute: { label: "通勤", color: "#7d8fa6" },
+    d_housing: { label: "住房", color: "#5f7fa8" },
+    d_daily_use: { label: "日用", color: "#918577" },
+    p_clothing: { label: "服饰", color: "#6f8f66" },
+    p_health: { label: "健康", color: "#7f8f4e" },
+    p_home_trip: { label: "探亲", color: "#a95f3c" },
+    p_entertain: { label: "娱乐", color: "#7d68a6" },
+    p_big_item: { label: "大件", color: "#4f7f8c" },
+    s_travel: { label: "旅行", color: "#2f6f73" },
+    s_gift: { label: "人情", color: "#c05f5a" }
+  };
+
+  const YEAR_COLORS = ["#2f6f73", "#6f8f66", "#c98a4b", "#7d68a6", "#b36179"];
+  const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+  const PAGE_SIZE = 60;
+
+  const payload = JSON.parse(document.getElementById("exp-data")?.textContent ?? "{}") as {
+    stats: { total: number; count: number };
+    entries: Entry[];
+  };
+
+  const entries = payload.entries;
+  const years = [...new Set(entries.map(entry => entry.d.slice(0, 4)))].sort().reverse();
+  const yearColor = (year: string) => {
+    const ascending = [...years].sort();
+    const index = ascending.indexOf(year);
+    return YEAR_COLORS[(index < 0 ? 0 : index) % YEAR_COLORS.length];
+  };
+
+  const yearsEl = document.getElementById("exp-years") as HTMLElement;
+  const summaryEl = document.getElementById("exp-summary") as HTMLElement;
+  const chartEl = document.getElementById("exp-chart") as HTMLElement;
+  const chartMetaEl = document.getElementById("exp-chart-meta") as HTMLElement;
+  const catsEl = document.getElementById("exp-cats") as HTMLElement;
+  const catMetaEl = document.getElementById("exp-cat-meta") as HTMLElement;
+  const listEl = document.getElementById("exp-list") as HTMLElement;
+  const moreBtn = document.getElementById("exp-more") as HTMLButtonElement;
+
+  let activeYear = "all";
+  let limit = PAGE_SIZE;
+  const hidden = new Set<string>();
+
+  const money = (value: number) =>
+    `¥${value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const byYear = () => entries.filter(entry => activeYear === "all" || entry.d.startsWith(activeYear));
+  const filtered = () => byYear().filter(entry => !hidden.has(entry.c));
+
+  function renderYears() {
+    const items = [["all", "全部"], ...years.map(year => [year, year])];
+    yearsEl.innerHTML = items
+      .map(
+        ([value, label]) =>
+          `<button type="button" data-year="${value}" aria-pressed="${String(value === activeYear)}">${label}</button>`
+      )
+      .join("");
+  }
+
+  function renderSummary() {
+    const list = filtered();
+    const total = list.reduce((sum, entry) => sum + entry.a, 0);
+    const dates = list.map(entry => entry.d).sort();
+
+    summaryEl.innerHTML = list.length
+      ? `${dates[0]} ~ ${dates[dates.length - 1]} · <b>${list.length}</b> 笔 · 合计 <b>${money(total)}</b> · 笔均 <b>${money(total / list.length)}</b>`
+      : "所选筛选下没有记录";
+  }
+
+  function renderChart() {
+    const list = filtered();
+    const months = new Map<string, number>();
+    for (const entry of list) {
+      const month = entry.d.slice(0, 7);
+      months.set(month, (months.get(month) ?? 0) + entry.a);
+    }
+
+    const keys = [...months.keys()].sort();
+    const max = Math.max(...keys.map(key => months.get(key) ?? 0), 0);
+
+    if (!keys.length) {
+      chartEl.innerHTML = `<p class="exp-empty">暂无数据</p>`;
+      chartMetaEl.textContent = "—";
+      return;
+    }
+
+    chartEl.innerHTML = keys
+      .map((key, index) => {
+        const amount = months.get(key) ?? 0;
+        const height = max ? Math.max(3, (amount / max) * 100) : 3;
+        const year = key.slice(0, 4);
+        const month = key.slice(5, 7);
+        const showYear = index === 0 || month === "01";
+        return `<div class="exp-col" style="--yc:${yearColor(year)}" title="${key} · ${money(amount)}">
+          <div class="exp-col-bar" style="height:${height.toFixed(1)}%"></div>
+          <span class="exp-col-label">${month} 月</span>
+          <span class="exp-col-year">${showYear ? year : ""}</span>
+        </div>`;
+      })
+      .join("");
+
+    const peakKey = keys.reduce((best, key) =>
+      (months.get(key) ?? 0) > (months.get(best) ?? 0) ? key : best
+    );
+    chartMetaEl.textContent = `峰值 ${peakKey} · ${money(months.get(peakKey) ?? 0)} · ${keys.length} 个月`;
+  }
+
+  function renderCats() {
+    const list = byYear();
+    const totals = new Map<string, number>();
+    for (const entry of list) totals.set(entry.c, (totals.get(entry.c) ?? 0) + entry.a);
+
+    const total = [...totals.values()].reduce((sum, value) => sum + value, 0) || 1;
+    const rows = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+    const max = rows[0]?.[1] ?? 1;
+
+    catsEl.innerHTML = rows
+      .map(([key, amount]) => {
+        const meta = CATS[key] ?? { label: key, color: "#98a4b0" };
+        const pressed = String(!hidden.has(key));
+        return `<button type="button" class="exp-cat" data-cat="${key}" aria-pressed="${pressed}" style="--c:${meta.color}">
+          <span class="dot"></span>
+          <span class="name">${meta.label}</span>
+          <span class="track"><i style="width:${((amount / max) * 100).toFixed(1)}%"></i></span>
+          <span class="amt">${money(amount)}</span>
+          <span class="pct">${((amount / total) * 100).toFixed(1)}%</span>
+        </button>`;
+      })
+      .join("");
+
+    catMetaEl.textContent = rows.length ? `${rows.length} 个分类 · 合计 ${money(total)}` : "—";
+  }
+
+  function renderList() {
+    const list = filtered();
+    limit = Math.min(limit, Math.max(list.length, PAGE_SIZE));
+    const visible = list.slice(0, limit);
+
+    if (!visible.length) {
+      listEl.innerHTML = `<p class="exp-empty">这个筛选下还没有记录。</p>`;
+      moreBtn.hidden = true;
+      return;
+    }
+
+    let lastMonth = "";
+    const monthTotals = new Map<string, number>();
+    for (const entry of list) {
+      const month = entry.d.slice(0, 7);
+      monthTotals.set(month, (monthTotals.get(month) ?? 0) + entry.a);
+    }
+
+    const html = visible
+      .map(entry => {
+        const month = entry.d.slice(0, 7);
+        let header = "";
+        if (month !== lastMonth) {
+          lastMonth = month;
+          header = `<div class="exp-month"><span>${entry.d.slice(0, 4)} 年 ${entry.d.slice(5, 7)} 月</span><b>${money(monthTotals.get(month) ?? 0)}</b></div>`;
+        }
+        return `${header}<article class="exp-row">${rowHtml(entry)}</article>`;
+      })
+      .join("");
+
+    listEl.innerHTML = html;
+    moreBtn.hidden = limit >= list.length;
+  }
+
+  function rowHtml(entry: Entry) {
+    const meta = CATS[entry.c] ?? { label: entry.c, color: "#98a4b0" };
+    const date = new Date(Number(entry.d.slice(0, 4)), Number(entry.d.slice(5, 7)) - 1, Number(entry.d.slice(8, 10)));
+    const note = entry.n ? entry.n.replace(/</g, "&lt;") : "—";
+    return `<div class="exp-date">
+        <b>${entry.d.slice(5, 7)}-${entry.d.slice(8, 10)}</b>
+        <span>周${WEEKDAYS[date.getDay()]}</span>
+      </div>
+      <span class="exp-tag" style="--c:${meta.color}"><i></i>${meta.label}</span>
+      <span class="exp-note" title="${note}">${note}</span>
+      <span class="exp-amount">${money(entry.a)}</span>`;
+  }
+
+  function renderAll() {
+    renderSummary();
+    renderChart();
+    renderCats();
+    renderList();
+  }
+
+  yearsEl.addEventListener("click", event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-year]");
+    if (!button) return;
+    activeYear = button.dataset.year ?? "all";
+    limit = PAGE_SIZE;
+    yearsEl.querySelectorAll<HTMLButtonElement>("button").forEach(other => {
+      other.setAttribute("aria-pressed", String(other === button));
+    });
+    renderAll();
+  });
+
+  catsEl.addEventListener("click", event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-cat]");
+    if (!button) return;
+    const key = button.dataset.cat ?? "";
+    if (hidden.has(key)) hidden.delete(key);
+    else hidden.add(key);
+    limit = PAGE_SIZE;
+    renderAll();
+  });
+
+  moreBtn.addEventListener("click", () => {
+    limit += PAGE_SIZE;
+    renderList();
+  });
+
+  renderYears();
+  renderAll();
+</script>

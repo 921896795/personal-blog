@@ -4,6 +4,7 @@
  *   dty_daily_diary     -> public/data/daily-diary.json
  *   dty_daily_feedback  -> public/data/daily-feedback.json
  *   dty_quarter_okr     -> public/data/quarter-okr.json
+ *   dty_daily_expense_v2 -> public/data/daily-expense.json
  *
  * 用法：
  *   node scripts/sync-data.mjs            # 缺少配置时跳过，保留现有快照（供构建使用）
@@ -189,6 +190,41 @@ try {
       avgProgress
     },
     entries: okrEntries
+  });
+
+  // ---------------------------------------------------------------- 收支
+  const [expenseRows] = await connection.query(
+    `SELECT DATE_FORMAT(period, '%Y-%m-%d') AS day,
+            amount, category, note
+       FROM dty_daily_expense_v2
+      WHERE period IS NOT NULL
+      ORDER BY period DESC, id DESC`
+  );
+
+  const expenseEntries = expenseRows
+    .map(row => ({
+      d: row.day,
+      a: round(row.amount),
+      c: row.category,
+      n: text(row.note)
+    }))
+    .filter(entry => entry.a > 0);
+
+  const expenseTotal = round(expenseEntries.reduce((total, entry) => total + entry.a, 0));
+  const expenseMonths = new Set(expenseEntries.map(entry => entry.d.slice(0, 7)));
+  const expenseDates = expenseEntries.map(entry => entry.d).sort();
+
+  writeSnapshot("daily-expense.json", {
+    syncedAt: new Date().toISOString(),
+    stats: {
+      total: expenseTotal,
+      count: expenseEntries.length,
+      months: expenseMonths.size,
+      start: expenseDates[0] ?? null,
+      end: expenseDates[expenseDates.length - 1] ?? null,
+      avgMonthly: expenseMonths.size ? round(expenseTotal / expenseMonths.size) : 0
+    },
+    entries: expenseEntries
   });
 } catch (error) {
   fallback(`连接或查询失败：${error.message}`);

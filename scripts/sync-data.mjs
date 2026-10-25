@@ -1,0 +1,164 @@
+/**
+ * 把 MySQL 里的个人数据表导出为前端可直接读取的 JSON 快照。
+ *
+ *   dty_daily_diary     -> public/data/daily-diary.json
+ *   dty_daily_feedback  -> public/data/daily-feedback.json
+ *
+ * 用法：
+ *   node scripts/sync-data.mjs            # 缺少配置时跳过，保留现有快照（供构建使用）
+ *   node scripts/sync-data.mjs --strict   # 缺少配置或拉取失败时报错退出
+ *
+ * 需要的环境变量：
+ *   DATA_DB_HOST / DATA_DB_PORT / DATA_DB_USER / DATA_DB_PASSWORD / DATA_DB_NAME
+ * 兼容旧变量名 DIARY_DB_*。
+ */
+import { writeFileSync, mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+
+const OUT_DIR = resolve(process.cwd(), "public/data");
+const strict = process.argv.includes("--strict");
+
+const env = process.env;
+const pick = (name, fallbackName) => env[name] ?? (fallbackName ? env[fallbackName] : undefined);
+
+const config = {
+  host: pick("DATA_DB_HOST", "DIARY_DB_HOST"),
+  port: Number(pick("DATA_DB_PORT", "DIARY_DB_PORT") || 3306),
+  user: pick("DATA_DB_USER", "DIARY_DB_USER"),
+  password: pick("DATA_DB_PASSWORD", "DIARY_DB_PASSWORD"),
+  database: pick("DATA_DB_NAME", "DIARY_DB_NAME")
+};
+
+const missing = Object.entries(config)
+  .filter(([key, value]) => key !== "port" && !value)
+  .map(([key]) => key);
+
+function fallback(message) {
+  if (strict) {
+    console.error(`[sync] ${message}`);
+    process.exit(1);
+  }
+  console.warn(`[sync] ${message}，沿用现有快照（若不存在则页面显示空状态）`);
+  process.exit(0);
+}
+
+if (missing.length) {
+  fallback(`缺少数据库环境变量 ${missing.join("、")}`);
+}
+
+/** 每日时间的分类，顺序同时写入 JSON，前端按此渲染 */
+const FEEDBACK_CATEGORIES = [
+  "work",
+  "read",
+  "stock_sb",
+  "stock_xb",
+  "studyself",
+  "study",
+  "account",
+  "exercise",
+  "temp",
+  "other"
+];
+
+const round = value => Math.round(Number(value || 0) * 100) / 100;
+const text = value => (value ? String(value).trim() || null : null);
+
+const { createConnection } = await import("mysql2/promise");
+
+let connection;
+try {
+  connection = await createConnection({ ...config, charset: "utf8mb4", dateStrings: true, connectTimeout: 15000 });
+
+  // ---------------------------------------------------------------- 日记
+  const [diaryRows] = await connection.query(
+    `SELECT DATE_FORMAT(record_time, '%Y-%m-%d') AS day,
+            work_diary, life_diary, others, COALESCE(label, '') AS label
+       FROM dty_daily_diary
+      WHERE record_time IS NOT NULL
+      ORDER BY record_time DESC`
+  );
+
+  const diaryEntries = diaryRows
+    .map(row => ({
+      date: row.day,
+      work: text(row.work_diary),
+      life: text(row.life_diary),
+      others: text(row.others),
+      label: (row.label || "").trim()
+    }))
+    .filter(entry => entry.work || entry.life || entry.others);
+
+  const diaryDays = diaryEntries.map(entry => entry.date).sort();
+
+  writeSnapshot("daily-diary.json", {
+    syncedAt: new Date().toISOString(),
+    stats: {
+      total: diaryEntries.length,
+      days: new Set(diaryDays).size,
+      start: diaryDays[0] ?? null,
+      end: diaryDays[diaryDays.length - 1] ?? null
+    },
+    entries: diaryEntries
+  });
+
+  // ---------------------------------------------------------------- 每日时间
+  const [feedbackRows] = await connection.query(
+    `SELECT DATE_FORMAT(log_date, '%Y-%m-%d') AS day,
+            read_period, work, stock_sb_period, stock_xb_period,
+            studyself_period, account_period, exercise_period,
+            study_type, study_hour,
+            temporary_matters, temporary_type, other_period,
+            summary
+       FROM dty_daily_feedback
+      WHERE log_date IS NOT NULL
+      ORDER BY log_date DESC`
+  );
+
+  const feedbackEntries = feedbackRows.map(row => ({
+    d: row.day,
+    v: [
+      round(row.work),
+      round(row.read_period),
+      round(row.stock_sb_period),
+      round(row.stock_xb_period),
+      round(row.studyself_period),
+      round(row.study_hour),
+      round(row.account_period),
+      round(row.exercise_period),
+      round(row.temporary_matters),
+      round(row.other_period)
+    ],
+    st: row.study_type === null ? null : Number(row.study_type),
+    tt: row.temporary_type === null ? null : Number(row.temporary_type),
+    s: text(row.summary)
+  }));
+
+  const totalHours = feedbackEntries.reduce(
+    (sum, entry) => sum + entry.v.reduce((daySum, hours) => daySum + hours, 0),
+    0
+  );
+  const dates = feedbackEntries.map(entry => entry.d).sort();
+
+  writeSnapshot("daily-feedback.json", {
+    syncedAt: new Date().toISOString(),
+    categories: FEEDBACK_CATEGORIES,
+    stats: {
+      days: feedbackEntries.length,
+      hours: round(totalHours),
+      start: dates[0] ?? null,
+      end: dates[dates.length - 1] ?? null
+    },
+    entries: feedbackEntries
+  });
+} catch (error) {
+  fallback(`连接或查询失败：${error.message}`);
+} finally {
+  await connection?.end().catch(() => {});
+}
+
+function writeSnapshot(name, payload) {
+  mkdirSync(OUT_DIR, { recursive: true });
+  writeFileSync(resolve(OUT_DIR, name), JSON.stringify(payload), "utf8");
+  const size = (JSON.stringify(payload).length / 1024).toFixed(1);
+  console.log(`[sync] ${name} 已更新（约 ${size}KB）`);
+}

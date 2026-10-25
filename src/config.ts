@@ -14,7 +14,8 @@ export const NAV_LINKS = [
   { href: "/projects/", label: "项目" },
   { href: "/reading-notes/", label: "读书笔记" },
   { href: "/about/", label: "关于" },
-  { href: "/dty_daily_diary/", label: "日记" }
+  { href: "/dty_daily_diary/", label: "日记" },
+  { href: "/dty_daily_feedback/", label: "每日时间" }
 ];
 
 export const SOCIAL_LINKS = [

@@ -1,0 +1,793 @@
+---
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import BaseLayout from "@/layouts/BaseLayout.astro";
+
+type Entry = { d: string; v: number[]; st: number | null; tt: number | null; s: string | null };
+type Payload = {
+  syncedAt: string;
+  categories: string[];
+  stats: { days: number; hours: number; start: string | null; end: string | null };
+  entries: Entry[];
+};
+
+const dataPath = resolve(process.cwd(), "public/data/daily-feedback.json");
+const data: Payload = existsSync(dataPath)
+  ? JSON.parse(readFileSync(dataPath, "utf8"))
+  : {
+      syncedAt: "",
+      categories: [],
+      stats: { days: 0, hours: 0, start: null, end: null },
+      entries: []
+    };
+
+const fmtHours = (value: number) =>
+  value >= 1000 ? Math.round(value).toLocaleString("zh-CN") : value.toFixed(1).replace(/\.0$/, "");
+
+const yearSpan =
+  data.stats.start && data.stats.end
+    ? data.stats.start.slice(0, 4) === data.stats.end.slice(0, 4)
+      ? data.stats.start.slice(0, 4)
+      : `${data.stats.start.slice(0, 4)} — ${data.stats.end.slice(0, 4)}`
+    : "—";
+
+const dailyAverage = data.stats.days ? data.stats.hours / data.stats.days : 0;
+
+const syncedLabel = data.syncedAt
+  ? new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(data.syncedAt))
+  : "—";
+
+const years = [...new Set(data.entries.map(entry => entry.d.slice(0, 4)))].sort().reverse();
+---
+
+<BaseLayout title="每日时间" description="每天的时间都去了哪里的可视化账本">
+  <section class="container fb-hero">
+    <p class="eyebrow">Time Ledger</p>
+    <h1 class="fb-title">每日时间</h1>
+    <p class="lead fb-lead">把每天拆成小时，看看它们最后都去了哪里。</p>
+
+    <dl class="fb-stats">
+      <div>
+        <dt>记录天数</dt>
+        <dd>{data.stats.days}<small>天</small></dd>
+      </div>
+      <div>
+        <dt>累计投入</dt>
+        <dd>{fmtHours(data.stats.hours)}<small>小时</small></dd>
+      </div>
+      <div>
+        <dt>日均</dt>
+        <dd>{dailyAverage.toFixed(1)}<small>小时</small></dd>
+      </div>
+      <div>
+        <dt>跨度</dt>
+        <dd class="fb-span">{yearSpan}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="container fb-panel-wrap">
+    <div class="fb-panel">
+      <header class="fb-panel-head">
+        <div>
+          <h2>时间构成</h2>
+          <p class="muted">点击图例可隐藏对应分类，条形会重新计算比例</p>
+        </div>
+        <span class="fb-range" id="fb-range">—</span>
+      </header>
+
+      <div class="fb-stacked" id="fb-stacked" aria-hidden="true"></div>
+      <ul class="fb-legend" id="fb-legend"></ul>
+    </div>
+  </section>
+
+  <section class="container">
+    <div class="fb-controls">
+      <div class="fb-chips" id="fb-years" role="group" aria-label="按年份筛选"></div>
+      <span class="fb-count" id="fb-count"></span>
+    </div>
+
+    <div class="fb-days" id="fb-days">
+      <p class="fb-empty">正在载入…</p>
+    </div>
+
+    <div class="fb-more">
+      <button type="button" id="fb-more" hidden>加载更多</button>
+    </div>
+
+    <p class="fb-source">数据来源：MySQL 表 <code>dty_daily_feedback</code> · 最近同步 {syncedLabel}</p>
+  </section>
+</BaseLayout>
+
+<script type="application/json" id="fb-data" set:html={JSON.stringify(data).replace(/</g, "\\u003c")}></script>
+
+<style is:global>
+  :root {
+    --fb-work: #2f6f73;
+    --fb-read: #6f8f66;
+    --fb-stock-sb: #c98a4b;
+    --fb-stock-xb: #a95f3c;
+    --fb-self: #5f7fa8;
+    --fb-study: #7d68a6;
+    --fb-account: #b36179;
+    --fb-exercise: #7f8f4e;
+    --fb-temp: #918577;
+    --fb-other: #98a4b0;
+  }
+
+  :root.dark {
+    --fb-work: #4fa3a7;
+    --fb-read: #94bd8a;
+    --fb-stock-sb: #e0aa6a;
+    --fb-stock-xb: #d1804f;
+    --fb-self: #8ab0d6;
+    --fb-study: #ab97d1;
+    --fb-account: #d68aa0;
+    --fb-exercise: #a9bd72;
+    --fb-temp: #b5a89b;
+    --fb-other: #aebac6;
+  }
+
+  .fb-hero {
+    padding-bottom: 12px;
+  }
+
+  .fb-title {
+    font-size: clamp(2.6rem, 9vw, 5rem);
+    letter-spacing: -0.02em;
+  }
+
+  .fb-lead {
+    margin-top: 14px;
+  }
+
+  .fb-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin: 26px 0 0;
+    padding: 0;
+  }
+
+  .fb-stats div {
+    position: relative;
+    display: grid;
+    gap: 2px;
+    padding: 14px 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .fb-stats div::after {
+    content: "";
+    position: absolute;
+    inset: auto -30% -60% auto;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent), transparent 78%), transparent 70%);
+  }
+
+  .fb-stats dt {
+    color: var(--muted);
+    font-size: 0.76rem;
+    letter-spacing: 0.16em;
+  }
+
+  .fb-stats dd {
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .fb-stats dd small {
+    margin-left: 4px;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .fb-stats .fb-span {
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+
+  .fb-panel {
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background:
+      radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent), transparent 92%), transparent 55%),
+      var(--surface);
+  }
+
+  .fb-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 18px;
+  }
+
+  .fb-panel-head h2 {
+    margin: 0 0 4px;
+    font-size: 1.15rem;
+  }
+
+  .fb-panel-head p {
+    margin: 0;
+    font-size: 0.84rem;
+  }
+
+  .fb-range {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .fb-stacked {
+    display: flex;
+    gap: 0;
+    height: 20px;
+    padding: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--line), transparent 35%);
+    overflow: hidden;
+  }
+
+  .fb-stacked .seg {
+    flex-basis: 0;
+    min-width: 0;
+    height: 100%;
+  }
+
+  .fb-stacked .seg:first-child {
+    border-radius: 999px 3px 3px 999px;
+  }
+
+  .fb-stacked .seg:last-child {
+    border-radius: 3px 999px 999px 3px;
+  }
+
+  .fb-legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 6px;
+    margin: 18px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .fb-legend button {
+    display: grid;
+    grid-template-columns: 10px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: none;
+    color: var(--text);
+    font-size: 0.88rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  }
+
+  .fb-legend button:hover {
+    border-color: var(--line);
+    background: var(--surface-strong);
+  }
+
+  .fb-legend button[aria-pressed="false"] {
+    opacity: 0.4;
+  }
+
+  .fb-legend .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--c);
+  }
+
+  .fb-legend .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .fb-legend .value {
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .fb-legend .value b {
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  .fb-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    margin: 30px 0 16px;
+  }
+
+  .fb-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .fb-chips button {
+    padding: 6px 15px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+
+  .fb-chips button:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .fb-chips button[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--surface-strong);
+    font-weight: 700;
+  }
+
+  .fb-count {
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fb-days {
+    display: grid;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .fb-month {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 12px 20px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface-strong), transparent 25%);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+  }
+
+  .fb-month:first-child {
+    border-top: none;
+  }
+
+  .fb-day {
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr) 58px;
+    gap: 16px;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid color-mix(in srgb, var(--line), transparent 45%);
+    transition: background 0.15s;
+  }
+
+  .fb-day:last-child {
+    border-bottom: none;
+  }
+
+  .fb-day:hover {
+    background: color-mix(in srgb, var(--accent), transparent 95%);
+  }
+
+  .fb-date {
+    display: grid;
+    gap: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fb-date b {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .fb-date span {
+    color: var(--muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+  }
+
+  .fb-main {
+    display: grid;
+    gap: 7px;
+    min-width: 0;
+  }
+
+  .fb-bar {
+    display: flex;
+    gap: 0;
+    height: 11px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--line), transparent 55%);
+    overflow: hidden;
+  }
+
+  .fb-bar .seg,
+  .fb-bar .rest {
+    flex-basis: 0;
+    min-width: 0;
+    height: 100%;
+  }
+
+  .fb-bar .seg:first-child {
+    border-radius: 999px 2px 2px 999px;
+  }
+
+  .fb-bar .seg:last-child {
+    border-radius: 2px 999px 999px 2px;
+  }
+
+  .fb-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    color: var(--muted);
+    font-size: 0.76rem;
+  }
+
+  .fb-tag {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fb-tag i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--c);
+  }
+
+  .fb-total {
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .fb-total b {
+    color: var(--text);
+    font-size: 1rem;
+    font-weight: 800;
+  }
+
+  .fb-summary {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-style: italic;
+  }
+
+  .fb-empty {
+    padding: 36px 0;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .fb-more {
+    display: flex;
+    justify-content: center;
+    margin-top: 18px;
+  }
+
+  .fb-more button {
+    padding: 9px 26px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+
+  .fb-more button:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .fb-source {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .fb-source code {
+    color: var(--accent-strong);
+  }
+
+  @media (max-width: 640px) {
+    .fb-day {
+      grid-template-columns: 62px minmax(0, 1fr);
+      gap: 12px;
+      padding: 12px 14px;
+    }
+
+    .fb-total {
+      grid-column: 2;
+      text-align: left;
+    }
+
+    .fb-total b {
+      font-size: 0.9rem;
+    }
+
+    .fb-panel {
+      padding: 16px;
+    }
+
+    .fb-legend {
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
+  }
+</style>
+
+<script>
+  type Entry = { d: string; v: number[]; st: number | null; tt: number | null; s: string | null };
+
+  const META: Record<string, { label: string; color: string }> = {
+    work: { label: "工作", color: "var(--fb-work)" },
+    read: { label: "阅读", color: "var(--fb-read)" },
+    stock_sb: { label: "上班看盘", color: "var(--fb-stock-sb)" },
+    stock_xb: { label: "复盘开发", color: "var(--fb-stock-xb)" },
+    studyself: { label: "长期自学", color: "var(--fb-self)" },
+    study: { label: "学习", color: "var(--fb-study)" },
+    account: { label: "做账号", color: "var(--fb-account)" },
+    exercise: { label: "运动", color: "var(--fb-exercise)" },
+    temp: { label: "临时事项", color: "var(--fb-temp)" },
+    other: { label: "其他", color: "var(--fb-other)" }
+  };
+
+  const STUDY_TYPES: Record<string, string> = {
+    "0": "未分类",
+    "1": "视频制作",
+    "2": "机器学习",
+    "3": "摄影",
+    "4": "Python",
+    "5": "数分",
+    "6": "AI",
+    "7": "程序开发",
+    "8": "新工作",
+    "9": "整理"
+  };
+
+  const TEMP_TYPES: Record<string, string> = {
+    "0": "未分类",
+    "1": "通话",
+    "2": "休息",
+    "3": "摸鱼",
+    "4": "游戏",
+    "5": "通话",
+    "6": "交流"
+  };
+
+  const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+  const PAGE_SIZE = 60;
+
+  const payloadNode = document.getElementById("fb-data");
+  const raw = payloadNode?.textContent ?? "{}";
+  const payload = JSON.parse(raw) as {
+    categories: string[];
+    entries: Entry[];
+    stats: { days: number; hours: number; start: string | null; end: string | null };
+  };
+
+  const categories = payload.categories;
+  const entries = payload.entries;
+
+  const legendEl = document.getElementById("fb-legend") as HTMLElement;
+  const stackedEl = document.getElementById("fb-stacked") as HTMLElement;
+  const rangeEl = document.getElementById("fb-range") as HTMLElement;
+  const yearsEl = document.getElementById("fb-years") as HTMLElement;
+  const countEl = document.getElementById("fb-count") as HTMLElement;
+  const daysEl = document.getElementById("fb-days") as HTMLElement;
+  const moreBtn = document.getElementById("fb-more") as HTMLButtonElement;
+
+  let activeYear = "all";
+  let limit = PAGE_SIZE;
+  const hidden = new Set<string>();
+
+  const sum = (entry: Entry) => entry.v.reduce((total, hours) => total + hours, 0);
+  const fmt = (value: number) => (Math.round(value * 10) / 10).toString().replace(/\.0$/, "");
+  const pad = (value: string) => value.padStart(2, "0");
+
+  function filtered() {
+    return activeYear === "all" ? entries : entries.filter(entry => entry.d.startsWith(activeYear));
+  }
+
+  function renderLegendAndBar() {
+    const list = filtered();
+    const totals = categories.map((_, index) =>
+      list.reduce((total, entry) => total + entry.v[index], 0)
+    );
+    const grandTotal = totals.reduce((total, hours) => total + hours, 0) || 1;
+
+    stackedEl.innerHTML = categories
+      .map((key, index) => {
+        if (hidden.has(key) || totals[index] <= 0) return "";
+        return `<span class="seg" style="flex:${totals[index]} 1 0;background:${META[key].color}" title="${META[key].label} ${fmt(totals[index])}h"></span>`;
+      })
+      .join("");
+
+    legendEl.innerHTML = categories
+      .map((key, index) => {
+        const percentage = (totals[index] / grandTotal) * 100;
+        const pressed = String(!hidden.has(key));
+        return `<li>
+          <button type="button" data-cat="${key}" aria-pressed="${pressed}" style="--c:${META[key].color}">
+            <span class="dot"></span>
+            <span class="name">${META[key].label}</span>
+            <span class="value"><b>${fmt(totals[index])}</b>h · ${percentage.toFixed(1)}%</span>
+          </button>
+        </li>`;
+      })
+      .join("");
+
+    const dates = list.map(entry => entry.d).sort();
+    rangeEl.textContent = dates.length ? `${dates[0]} — ${dates[dates.length - 1]}` : "暂无数据";
+  }
+
+  function renderList() {
+    const list = filtered();
+    limit = Math.min(limit, Math.max(list.length, PAGE_SIZE));
+    const visible = list.slice(0, limit);
+
+    if (!visible.length) {
+      daysEl.innerHTML = `<p class="fb-empty">这个筛选下还没有记录。</p>`;
+      countEl.textContent = "共 0 天";
+      moreBtn.hidden = true;
+      return;
+    }
+
+    let lastMonth = "";
+    const html = visible
+      .map(entry => {
+        const month = entry.d.slice(0, 7);
+        let header = "";
+        if (month !== lastMonth) {
+          lastMonth = month;
+          header = `<div class="fb-month"><span>${entry.d.slice(0, 4)} 年 ${entry.d.slice(5, 7)} 月</span></div>`;
+        }
+
+        const date = new Date(Number(entry.d.slice(0, 4)), Number(entry.d.slice(5, 7)) - 1, Number(entry.d.slice(8, 10)));
+        const total = sum(entry);
+
+        const segments = categories
+          .map((key, index) => {
+            const hours = entry.v[index];
+            if (hidden.has(key) || hours <= 0 || total <= 0) return "";
+            return `<span class="seg" style="flex:${hours} 1 0;background:${META[key].color}" title="${META[key].label} ${fmt(hours)}h"></span>`;
+          })
+          .join("");
+
+        // 以 24 小时为满格，条形长度直接反映当天填满了几小时
+        const rest = Math.max(24 - total, 0);
+        const restSpan = rest > 0 ? `<span class="rest" style="flex:${rest} 1 0"></span>` : "";
+
+        const tags = categories
+          .map((key, index) => {
+            const hours = entry.v[index];
+            if (hidden.has(key) || hours <= 0) return "";
+            let name = META[key].label;
+            if (key === "study" && entry.st !== null && STUDY_TYPES[String(entry.st)]) {
+              name += ` · ${STUDY_TYPES[String(entry.st)]}`;
+            }
+            if (key === "temp" && entry.tt !== null && TEMP_TYPES[String(entry.tt)]) {
+              name += ` · ${TEMP_TYPES[String(entry.tt)]}`;
+            }
+            return `<span class="fb-tag" style="--c:${META[key].color}"><i></i>${name} ${fmt(hours)}h</span>`;
+          })
+          .join("");
+
+        return `${header}
+          <article class="fb-day">
+            <div class="fb-date">
+              <b>${pad(entry.d.slice(5, 7))}-${pad(entry.d.slice(8, 10))}</b>
+              <span>${activeYear === "all" ? entry.d.slice(0, 4) + " · " : ""}周${WEEKDAYS[date.getDay()]}</span>
+            </div>
+            <div class="fb-main">
+              <div class="fb-bar">${segments}${restSpan}</div>
+              ${tags ? `<div class="fb-tags">${tags}</div>` : ""}
+              ${entry.s ? `<p class="fb-summary">“${entry.s.replace(/</g, "&lt;")}”</p>` : ""}
+            </div>
+            <div class="fb-total"><b>${fmt(total)}</b>h</div>
+          </article>`;
+      })
+      .join("");
+
+    daysEl.innerHTML = html;
+    countEl.textContent = `共 ${list.length} 天`;
+    moreBtn.hidden = limit >= list.length;
+  }
+
+  function renderAll() {
+    renderLegendAndBar();
+    renderList();
+  }
+
+  function renderYears() {
+    const years = [...new Set(entries.map(entry => entry.d.slice(0, 4)))].sort().reverse();
+    const items = [["all", "全部"], ...years.map(year => [year, year])];
+    yearsEl.innerHTML = items
+      .map(
+        ([value, label]) =>
+          `<button type="button" data-year="${value}" aria-pressed="${String(value === activeYear)}">${label}</button>`
+      )
+      .join("");
+  }
+
+  yearsEl.addEventListener("click", event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-year]");
+    if (!button) return;
+    activeYear = button.dataset.year ?? "all";
+    limit = PAGE_SIZE;
+    yearsEl.querySelectorAll<HTMLButtonElement>("button").forEach(other => {
+      other.setAttribute("aria-pressed", String(other === button));
+    });
+    renderAll();
+  });
+
+  legendEl.addEventListener("click", event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-cat]");
+    if (!button) return;
+    const key = button.dataset.cat ?? "";
+    if (hidden.has(key)) hidden.delete(key);
+    else hidden.add(key);
+    renderAll();
+  });
+
+  moreBtn.addEventListener("click", () => {
+    limit += PAGE_SIZE;
+    renderList();
+  });
+
+  renderYears();
+  renderAll();
+</script>

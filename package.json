@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "node scripts/astro-cli.mjs dev",
     "start": "node scripts/astro-cli.mjs dev",
-    "prebuild": "node scripts/sync-diary.mjs",
+    "prebuild": "node scripts/sync-data.mjs",
     "build": "node scripts/astro-cli.mjs build",
     "preview": "node scripts/astro-cli.mjs preview",
-    "sync:diary": "node scripts/sync-diary.mjs --strict"
+    "sync:data": "node scripts/sync-data.mjs --strict"
   },
   "dependencies": {
     "@astrojs/mdx": "^4.0.0",

@@ -140,6 +140,102 @@ input {
   font-weight: 700;
 }
 
+/* 导航分组下拉（个人归档） */
+.nav-group {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.nav-group::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 16px;
+}
+
+.nav-group-toggle {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.nav-group-toggle:hover,
+.nav-group.has-active .nav-group-toggle {
+  color: var(--accent-strong);
+}
+
+.nav-group.has-active .nav-group-toggle {
+  font-weight: 700;
+}
+
+.nav-caret {
+  font-size: 0.62rem;
+  opacity: 0.65;
+  transition: transform 0.15s;
+}
+
+.nav-group:hover .nav-caret,
+.nav-group:focus-within .nav-caret,
+.nav-group.is-open .nav-caret {
+  transform: rotate(180deg);
+}
+
+.nav-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  min-width: 132px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  box-shadow: 0 12px 30px color-mix(in srgb, #000, transparent 88%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, 6px);
+  transition: opacity 0.15s, transform 0.15s, visibility 0.15s;
+}
+
+.nav-group:hover .nav-dropdown,
+.nav-group:focus-within .nav-dropdown,
+.nav-group.is-open .nav-dropdown {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.nav-dropdown a {
+  padding: 6px 12px;
+  border-radius: 7px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.nav-dropdown a:hover,
+.nav-dropdown a[aria-current="page"] {
+  background: color-mix(in srgb, var(--accent), transparent 92%);
+  color: var(--accent-strong);
+}
+
+.nav-dropdown a[aria-current="page"] {
+  font-weight: 700;
+}
+
 .icon-button {
   width: 40px;
   height: 40px;
@@ -628,6 +724,26 @@ html.auth-locked body {
     width: 100%;
     overflow-x: auto;
     padding-bottom: 2px;
+  }
+
+  .nav-group::after {
+    display: none;
+  }
+
+  .nav-dropdown {
+    position: fixed;
+    top: 104px;
+    right: 16px;
+    left: 16px;
+    z-index: 30;
+    min-width: 0;
+    transform: translateY(6px);
+  }
+
+  .nav-group:hover .nav-dropdown,
+  .nav-group:focus-within .nav-dropdown,
+  .nav-group.is-open .nav-dropdown {
+    transform: translateY(0);
   }
 
   .hero,

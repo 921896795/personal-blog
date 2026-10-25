@@ -2,6 +2,8 @@
 import { NAV_LINKS, SITE } from "@/config";
 
 const pathname = Astro.url.pathname;
+const isActive = (href: string) =>
+  pathname === href || (href !== "/" && pathname.startsWith(href));
 ---
 
 <header class="site-header">
@@ -12,18 +14,32 @@ const pathname = Astro.url.pathname;
     </a>
     <nav class="site-nav" aria-label="主导航">
       {
-        NAV_LINKS.map(link => (
-          <a
-            href={link.href}
-            aria-current={
-              pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href))
-                ? "page"
-                : undefined
-            }
-          >
-            {link.label}
-          </a>
-        ))
+        NAV_LINKS.map(link =>
+          link.children ? (
+            <div class:list={["nav-group", { "has-active": link.children.some(child => isActive(child.href)) }]}>
+              <button
+                class="nav-group-toggle"
+                type="button"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                {link.label}
+                <span class="nav-caret" aria-hidden="true">▾</span>
+              </button>
+              <div class="nav-dropdown">
+                {link.children.map(child => (
+                  <a href={child.href} aria-current={isActive(child.href) ? "page" : undefined}>
+                    {child.label}
+                  </a>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <a href={link.href} aria-current={isActive(link.href!) ? "page" : undefined}>
+              {link.label}
+            </a>
+          )
+        )
       }
       <a href="/search/" aria-current={pathname.startsWith("/search/") ? "page" : undefined}>
         搜索
@@ -42,5 +58,32 @@ const pathname = Astro.url.pathname;
     const root = document.documentElement;
     const isDark = root.classList.toggle("dark");
     localStorage.setItem("theme", isDark ? "dark" : "light");
+  });
+
+  const groups = document.querySelectorAll<HTMLElement>(".nav-group");
+
+  groups.forEach(group => {
+    const toggle = group.querySelector<HTMLButtonElement>(".nav-group-toggle");
+    toggle?.addEventListener("click", event => {
+      event.stopPropagation();
+      const open = group.classList.toggle("is-open");
+      toggle.setAttribute("aria-expanded", String(open));
+    });
+  });
+
+  document.addEventListener("click", event => {
+    if ((event.target as HTMLElement | null)?.closest(".nav-group")) return;
+    groups.forEach(group => {
+      group.classList.remove("is-open");
+      group.querySelector(".nav-group-toggle")?.setAttribute("aria-expanded", "false");
+    });
+  });
+
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    groups.forEach(group => {
+      group.classList.remove("is-open");
+      group.querySelector(".nav-group-toggle")?.setAttribute("aria-expanded", "false");
+    });
   });
 </script>

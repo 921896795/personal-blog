@@ -6,18 +6,29 @@ export const SITE = {
   locale: "zh-CN"
 };
 
-export const NAV_LINKS = [
+export type NavItem = {
+  href?: string;
+  label: string;
+  children?: { href: string; label: string }[];
+};
+
+export const NAV_LINKS: NavItem[] = [
   { href: "/dty_trade_review/", label: "个股复盘" },
   { href: "/dty_week_return/", label: "周收益" },
   { href: "/", label: "首页" },
   { href: "/reading-notes/", label: "读书笔记" },
-  { href: "/dty_daily_diary/", label: "日记" },
+  {
+    label: "个人归档",
+    children: [
+      { href: "/dty_daily_diary/", label: "日记" },
+      { href: "/dty_books/", label: "读书" },
+      { href: "/dty_exercise/", label: "运动" },
+      { href: "/dty_movie/", label: "影视" }
+    ]
+  },
   { href: "/dty_daily_feedback/", label: "每日时间" },
   { href: "/dty_quarter_okr/", label: "OKR" },
-  { href: "/dty_daily_expense_v2/", label: "支出" },
-  { href: "/dty_exercise/", label: "运动" },
-  { href: "/dty_books/", label: "读书" },
-  { href: "/dty_movie/", label: "影视" }
+  { href: "/dty_daily_expense_v2/", label: "支出" }
 ];
 
 export const SOCIAL_LINKS = [

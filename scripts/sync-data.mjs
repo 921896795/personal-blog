@@ -8,6 +8,7 @@
  *   dty_exercise        -> public/data/exercise.json
  *   dty_books           -> public/data/books.json
  *   dty_movies          -> public/data/movies.json
+ *   ods_trade_股票交易复盘 -> public/data/trade-review.json
  *
  * 用法：
  *   node scripts/sync-data.mjs            # 缺少配置时跳过，保留现有快照（供构建使用）
@@ -331,6 +332,47 @@ try {
       latest: movieEntries[0]?.t ?? null
     },
     entries: movieEntries
+  });
+
+  // ---------------------------------------------------------------- 个股复盘
+  const [tradeRows] = await connection.query(
+    `SELECT 个股, 模式, 收益率, 持有时间, 交易金额, 反思,
+            模式评价（买）, 模式评价（卖）, 结果评价, 未参与,
+            DATE_FORMAT(日期, '%Y-%m-%d') AS day
+       FROM ods_trade_股票交易复盘
+      WHERE 日期 IS NOT NULL
+      ORDER BY 日期 DESC`
+  );
+
+  const tradeEntries = tradeRows.map((row, index) => ({
+    id: index + 1,
+    d: row.day,
+    s: (row.个股 || "").trim() || "未命名个股",
+    m: (row.模式 || "").trim() || null,
+    r: (row.收益率 || "").trim() || null,
+    h: (row.持有时间 || "").trim() || null,
+    a: (row.交易金额 || "").trim() || null,
+    note: text(row.反思),
+    buy: (row["模式评价（买）"] || "").trim() || null,
+    sell: (row["模式评价（卖）"] || "").trim() || null,
+    res: (row.结果评价 || "").trim() || null,
+    np: String(row.未参与 ?? "").trim() === "1"
+  }));
+
+  const tradeDates = tradeEntries.map(entry => entry.d).sort();
+
+  writeSnapshot("trade-review.json", {
+    syncedAt: new Date().toISOString(),
+    stats: {
+      total: tradeEntries.length,
+      days: new Set(tradeDates).size,
+      stocks: new Set(tradeEntries.map(entry => entry.s)).size,
+      reflections: tradeEntries.filter(entry => entry.note).length,
+      start: tradeDates[0] ?? null,
+      end: tradeDates[tradeDates.length - 1] ?? null,
+      latest: tradeEntries[0] ? `${tradeEntries[0].d} · ${tradeEntries[0].s}` : null
+    },
+    entries: tradeEntries
   });
 } catch (error) {
   fallback(`连接或查询失败：${error.message}`);

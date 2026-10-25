@@ -1,0 +1,1385 @@
+---
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import BaseLayout from "@/layouts/BaseLayout.astro";
+
+type Entry = {
+  id: number;
+  d: string;
+  s: string;
+  m: string | null;
+  r: string | null;
+  h: string | null;
+  a: string | null;
+  note: string | null;
+  buy: string | null;
+  sell: string | null;
+  res: string | null;
+  np: boolean;
+};
+type Payload = {
+  syncedAt: string;
+  stats: {
+    total: number;
+    days: number;
+    stocks: number;
+    reflections: number;
+    start: string | null;
+    end: string | null;
+    latest: string | null;
+  };
+  entries: Entry[];
+};
+
+const dataPath = resolve(process.cwd(), "public/data/trade-review.json");
+const data: Payload = existsSync(dataPath)
+  ? JSON.parse(readFileSync(dataPath, "utf8"))
+  : {
+      syncedAt: "",
+      stats: { total: 0, days: 0, stocks: 0, reflections: 0, start: null, end: null, latest: null },
+      entries: []
+    };
+
+const parseRate = (value: string | null): number | null => {
+  if (!value) return null;
+  const cleaned = value.replace(/%/g, "").trim();
+  const num = Number(cleaned);
+  return cleaned && Number.isFinite(num) ? num : null;
+};
+const toneOf = (value: string | null) => {
+  if (value === "成功" || value === "非常成功") return "win";
+  if (value === "失败") return "lose";
+  if (value === "普通") return "normal";
+  return "none";
+};
+
+// 首屏按默认区间（当前自然月）渲染，与客户端初始筛选一致
+const now = new Date();
+const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+const initialStart = `${currentMonth}-01`;
+const initialEnd = (() => {
+  const [year, index] = currentMonth.split("-").map(Number);
+  const last = new Date(year, index, 0);
+  return `${year}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
+})();
+const initialEntries = data.entries.filter(entry => entry.d >= initialStart && entry.d <= initialEnd);
+const initialEvaluated = initialEntries.filter(entry => toneOf(entry.res) !== "none").length;
+const initialWins = initialEntries.filter(entry => toneOf(entry.res) === "win").length;
+const initialWinRate = initialEvaluated ? Math.round((initialWins / initialEvaluated) * 100) : null;
+const initialRates = initialEntries
+  .map(entry => parseRate(entry.r))
+  .filter((value): value is number => value !== null);
+const initialAvg = initialRates.length
+  ? initialRates.reduce((sum, value) => sum + value, 0) / initialRates.length
+  : null;
+const initialReflections = initialEntries.filter(entry => entry.note).length;
+const fmtRate = (value: number | null) =>
+  value === null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+
+const syncedLabel = data.syncedAt
+  ? new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(data.syncedAt))
+  : "—";
+---
+
+<BaseLayout title="个股复盘" description="股票交易的模式、执行与反思记录">
+  <section class="container tr-hero">
+    <p class="eyebrow">Trade Review</p>
+    <h1 class="tr-title">个股复盘</h1>
+    <p class="lead tr-lead">每一笔交易都留下模式、执行与反思，回头看得清问题出在哪。</p>
+    <p class="tr-last" id="tr-last">
+      最近复盘 · <b>{data.stats.latest ?? "—"}</b>
+    </p>
+
+    <dl class="tr-stats">
+      <div>
+        <dt>复盘笔数</dt>
+        <dd id="tr-stat-total">{initialEntries.length}<small>笔</small></dd>
+      </div>
+      <div>
+        <dt>胜率</dt>
+        <dd id="tr-stat-win">{initialWinRate === null ? "—" : initialWinRate}<small>%</small></dd>
+      </div>
+      <div>
+        <dt>平均收益</dt>
+        <dd id="tr-stat-avg">{fmtRate(initialAvg)}<small>每笔</small></dd>
+      </div>
+      <div>
+        <dt>反思记录</dt>
+        <dd id="tr-stat-note">{initialReflections}<small>条</small></dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="container">
+    <div class="tr-range-bar">
+      <div class="tr-chips" id="tr-presets" role="group" aria-label="时间范围">
+        <button type="button" data-preset="week" aria-pressed="false">本周</button>
+        <button type="button" data-preset="last7" aria-pressed="false">近 7 天</button>
+        <button type="button" data-preset="last30" aria-pressed="false">近 30 天</button>
+        <button type="button" data-preset="month" aria-pressed="true">本月</button>
+        <button type="button" data-preset="year" aria-pressed="false">本年</button>
+        <button type="button" data-preset="all" aria-pressed="false">全部</button>
+      </div>
+
+      <div class="tr-pickers">
+        <label>
+          月份
+          <select id="tr-month">
+            <option value="all">全部</option>
+          </select>
+        </label>
+        <label>
+          起
+          <input type="date" id="tr-start" />
+        </label>
+        <label>
+          止
+          <input type="date" id="tr-end" />
+        </label>
+      </div>
+    </div>
+
+    <p class="tr-summary" id="tr-summary">—</p>
+  </section>
+
+  <section class="container tr-panel-wrap">
+    <div class="tr-panel tr-panel-focus">
+      <header class="tr-panel-head">
+        <div>
+          <h2>反思明细</h2>
+          <p class="muted" id="tr-list-sub">按复盘月份倒序，完整保留每一次的反思与买卖评价</p>
+        </div>
+        <div class="tr-fchips" id="tr-filters" role="group" aria-label="结果筛选">
+          <button type="button" data-filter="all" aria-pressed="true">全部 <b>—</b></button>
+          <button type="button" data-filter="win" aria-pressed="false">成功 <b>—</b></button>
+          <button type="button" data-filter="normal" aria-pressed="false">普通 <b>—</b></button>
+          <button type="button" data-filter="lose" aria-pressed="false">失败 <b>—</b></button>
+        </div>
+      </header>
+      <div class="tr-list" id="tr-list">
+        <p class="tr-empty">正在载入…</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="container tr-panel-wrap">
+    <div class="tr-panel">
+      <header class="tr-panel-head">
+        <div>
+          <h2>模式复盘</h2>
+          <p class="muted">同一模式下反复出现的问题，才是真正要改的地方</p>
+        </div>
+        <span class="tr-meta" id="tr-mode-meta">—</span>
+      </header>
+      <div class="tr-modes" id="tr-modes">
+        <p class="tr-empty">正在载入…</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="container tr-panel-wrap">
+    <div class="tr-panel">
+      <header class="tr-panel-head">
+        <div>
+          <h2 id="tr-chart-title">月度收益</h2>
+          <p class="muted" id="tr-chart-sub">每个月复盘记录的平均收益率</p>
+        </div>
+        <div class="tr-aside">
+          <span class="tr-legend"><i class="tr-dot tr-dot-pos"></i>正收益<i class="tr-dot tr-dot-neg"></i>负收益</span>
+          <span class="tr-meta" id="tr-chart-meta">—</span>
+        </div>
+      </header>
+      <div class="tr-chart-wrap">
+        <div class="tr-chart" id="tr-chart"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="container">
+    <p class="tr-source">
+      数据来源：MySQL 表 <code>ods_trade_股票交易复盘</code> · 最近同步 {syncedLabel}
+    </p>
+  </section>
+</BaseLayout>
+
+<script type="application/json" id="tr-data" set:html={JSON.stringify(data).replace(/</g, "\\u003c")}></script>
+
+<style is:global>
+  .tr-hero {
+    padding-bottom: 10px;
+  }
+
+  .tr-title {
+    font-size: clamp(2.6rem, 9vw, 5rem);
+    letter-spacing: -0.02em;
+  }
+
+  .tr-lead {
+    margin-top: 14px;
+  }
+
+  .tr-last {
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+    margin: 16px 0 0;
+    padding: 5px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent), transparent 93%);
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tr-last b {
+    color: var(--accent-strong);
+  }
+
+  .tr-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin: 24px 0 0;
+    padding: 0;
+  }
+
+  .tr-stats div {
+    position: relative;
+    display: grid;
+    gap: 2px;
+    padding: 14px 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .tr-stats div::after {
+    content: "";
+    position: absolute;
+    inset: auto -30% -60% auto;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent), transparent 80%), transparent 70%);
+  }
+
+  .tr-stats dt {
+    color: var(--muted);
+    font-size: 0.76rem;
+    letter-spacing: 0.16em;
+  }
+
+  .tr-stats dd {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+  }
+
+  .tr-stats dd small {
+    margin-left: 5px;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .tr-range-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    align-items: center;
+    margin: 24px 0 10px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .tr-pickers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-left: auto;
+  }
+
+  .tr-pickers label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .tr-pickers select,
+  .tr-pickers input {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--surface-strong);
+    color: var(--text);
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tr-pickers select:focus,
+  .tr-pickers input:focus {
+    outline: 2px solid color-mix(in srgb, var(--accent), transparent 55%);
+    outline-offset: 1px;
+  }
+
+  .tr-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .tr-chips button {
+    padding: 6px 15px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+
+  .tr-chips button:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .tr-chips button[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--surface-strong);
+    font-weight: 700;
+  }
+
+  .tr-summary {
+    margin: 0 0 16px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tr-summary b {
+    color: var(--text);
+  }
+
+  .tr-panel-wrap {
+    margin-bottom: 16px;
+  }
+
+  .tr-panel {
+    padding: 20px 22px 22px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background:
+      radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent), transparent 93%), transparent 55%),
+      var(--surface);
+  }
+
+  .tr-panel-focus {
+    border-color: color-mix(in srgb, var(--accent), transparent 52%);
+    box-shadow: 0 12px 34px color-mix(in srgb, var(--accent), transparent 94%);
+  }
+
+  .tr-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .tr-panel-head h2 {
+    margin: 0 0 4px;
+    font-size: 1.15rem;
+  }
+
+  .tr-panel-head p {
+    margin: 0;
+    font-size: 0.84rem;
+  }
+
+  .tr-fchips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tr-fchips button {
+    display: inline-flex;
+    gap: 5px;
+    align-items: baseline;
+    padding: 3px 11px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+
+  .tr-fchips button b {
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.7;
+  }
+
+  .tr-fchips button:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .tr-fchips button[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent), transparent 88%);
+    color: var(--accent-strong);
+    font-weight: 700;
+  }
+
+  .tr-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .tr-month {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    margin: 14px 0 2px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+  }
+
+  .tr-month:first-child {
+    margin-top: 0;
+  }
+
+  .tr-month b {
+    margin-left: auto;
+    color: var(--text);
+    font-size: 0.84rem;
+    letter-spacing: normal;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tr-item {
+    position: relative;
+    padding: 13px 16px 14px 18px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .tr-item::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 12px;
+    bottom: 12px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+    background: var(--rc);
+    opacity: 0.75;
+  }
+
+  .tr-item:hover {
+    border-color: color-mix(in srgb, var(--accent), transparent 52%);
+    background: color-mix(in srgb, var(--accent), transparent 96%);
+  }
+
+  .tr-item-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: baseline;
+  }
+
+  .tr-date {
+    display: inline-flex;
+    gap: 5px;
+    align-items: baseline;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tr-date b {
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+
+  .tr-date span {
+    color: var(--muted);
+    font-size: 0.66rem;
+  }
+
+  .tr-stock {
+    margin: 0;
+    font-size: 1.02rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.35;
+  }
+
+  .tr-mode-tag {
+    padding: 1px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent), transparent 93%);
+    color: var(--accent-strong);
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .tr-res {
+    padding: 1px 9px;
+    border: 1px solid color-mix(in srgb, var(--rc), transparent 58%);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--rc), transparent 91%);
+    color: var(--rc);
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .tr-np {
+    padding: 1px 8px;
+    border: 1px dashed color-mix(in srgb, var(--muted), transparent 45%);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.68rem;
+    white-space: nowrap;
+  }
+
+  .tr-ret {
+    margin-left: auto;
+    padding: 1px 9px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .tr-ret.is-up {
+    background: color-mix(in srgb, #2f6f73, transparent 90%);
+    color: #2f6f73;
+  }
+
+  .tr-ret.is-down {
+    background: color-mix(in srgb, #b36179, transparent 90%);
+    color: #b36179;
+  }
+
+  .tr-ret.is-flat {
+    background: color-mix(in srgb, var(--line), transparent 60%);
+    color: var(--muted);
+  }
+
+  .tr-meta-inline {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .tr-note {
+    margin: 10px 0 0;
+    padding: 10px 14px;
+    border-left: 3px solid color-mix(in srgb, var(--rc), transparent 35%);
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--rc), transparent 94%);
+    color: var(--text);
+    font-size: 0.92rem;
+    line-height: 1.8;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+  }
+
+  .tr-note.is-empty {
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-style: italic;
+  }
+
+  .tr-eval {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .tr-eval-item {
+    padding: 2px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+
+  .tr-eval-item.is-good {
+    border-color: color-mix(in srgb, #2f6f73, transparent 62%);
+    background: color-mix(in srgb, #2f6f73, transparent 93%);
+    color: #2f6f73;
+    font-weight: 600;
+  }
+
+  .tr-eval-item.is-bad {
+    border-color: color-mix(in srgb, #b36179, transparent 58%);
+    background: color-mix(in srgb, #b36179, transparent 90%);
+    color: #b36179;
+    font-weight: 700;
+  }
+
+  .tr-eval-item.is-none {
+    color: var(--muted);
+  }
+
+  .tr-aside {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    align-items: center;
+  }
+
+  .tr-legend {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.76rem;
+  }
+
+  .tr-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+
+  .tr-dot-pos {
+    background: #2f6f73;
+  }
+
+  .tr-dot-neg {
+    background: #b36179;
+    margin-left: 4px;
+  }
+
+  .tr-meta {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .tr-modes {
+    display: grid;
+    gap: 11px;
+  }
+
+  .tr-mode {
+    display: grid;
+    grid-template-columns: minmax(88px, 136px) minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .tr-mode-name {
+    overflow: hidden;
+    font-size: 0.88rem;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tr-mode-track {
+    height: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--line), transparent 45%);
+  }
+
+  .tr-mode-track i {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent), #b36179 45%));
+  }
+
+  .tr-mode-stat {
+    color: var(--muted);
+    font-size: 0.76rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .tr-chart-wrap {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .tr-chart {
+    position: relative;
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+    min-height: 170px;
+    padding-top: 6px;
+  }
+
+  .tr-chart::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 78px;
+    border-top: 1px dashed var(--line);
+  }
+
+  .tr-col {
+    display: flex;
+    flex: 1 0 26px;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 26px;
+    text-align: center;
+  }
+
+  .tr-col-body {
+    position: relative;
+    width: 100%;
+    height: 144px;
+  }
+
+  .tr-bar {
+    position: absolute;
+    left: 50%;
+    width: min(100%, 22px);
+    border-radius: 4px;
+    transform: translateX(-50%);
+    transition: filter 0.15s;
+  }
+
+  .tr-bar.is-pos {
+    bottom: 50%;
+    background: linear-gradient(180deg, color-mix(in srgb, #2f6f73, white 14%), #2f6f73);
+  }
+
+  .tr-bar.is-neg {
+    top: 50%;
+    background: linear-gradient(0deg, color-mix(in srgb, #b36179, white 14%), #b36179);
+  }
+
+  .tr-bar.is-flat,
+  .tr-bar.is-empty {
+    bottom: calc(50% - 1px);
+    height: 2px;
+    border-radius: 1px;
+    background: color-mix(in srgb, var(--line), transparent 25%);
+  }
+
+  .tr-col:hover .tr-bar {
+    filter: saturate(1.15) brightness(1.05);
+  }
+
+  .tr-col-label {
+    color: var(--muted);
+    font-size: 0.66rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .tr-col-year {
+    color: color-mix(in srgb, var(--muted), transparent 35%);
+    font-size: 0.58rem;
+    line-height: 1;
+  }
+
+  .tr-empty {
+    padding: 40px 0;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .tr-source {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .tr-source code {
+    color: var(--accent-strong);
+  }
+
+  @media (max-width: 700px) {
+    .tr-panel {
+      padding: 16px;
+    }
+
+    .tr-item {
+      padding: 12px 12px 13px 15px;
+    }
+
+    .tr-ret {
+      margin-left: 0;
+    }
+
+    .tr-mode {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "name stat"
+        "track track";
+      gap: 5px 10px;
+    }
+
+    .tr-mode-name {
+      grid-area: name;
+    }
+
+    .tr-mode-stat {
+      grid-area: stat;
+    }
+
+    .tr-mode-track {
+      grid-area: track;
+    }
+  }
+</style>
+
+<script>
+  type Entry = {
+    id: number;
+    d: string;
+    s: string;
+    m: string | null;
+    r: string | null;
+    h: string | null;
+    a: string | null;
+    note: string | null;
+    buy: string | null;
+    sell: string | null;
+    res: string | null;
+    np: boolean;
+  };
+
+  type Tone = "win" | "normal" | "lose" | "none";
+
+  const RESULT_COLORS: Record<Tone, string> = {
+    win: "#2f6f73",
+    normal: "#918577",
+    lose: "#b36179",
+    none: "#7d8fa6"
+  };
+  const RESULT_LABELS: Record<Tone, string> = {
+    win: "成功",
+    normal: "普通",
+    lose: "失败",
+    none: "未评"
+  };
+  const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+
+  const payload = JSON.parse(document.getElementById("tr-data")?.textContent ?? "{}") as {
+    stats: { latest: string | null };
+    entries: Entry[];
+  };
+
+  const entries = payload.entries;
+  const lastEl = document.getElementById("tr-last") as HTMLElement;
+  const presetsEl = document.getElementById("tr-presets") as HTMLElement;
+  const monthEl = document.getElementById("tr-month") as HTMLSelectElement;
+  const startEl = document.getElementById("tr-start") as HTMLInputElement;
+  const endEl = document.getElementById("tr-end") as HTMLInputElement;
+  const summaryEl = document.getElementById("tr-summary") as HTMLElement;
+  const statTotalEl = document.getElementById("tr-stat-total") as HTMLElement;
+  const statWinEl = document.getElementById("tr-stat-win") as HTMLElement;
+  const statAvgEl = document.getElementById("tr-stat-avg") as HTMLElement;
+  const statNoteEl = document.getElementById("tr-stat-note") as HTMLElement;
+  const filtersEl = document.getElementById("tr-filters") as HTMLElement;
+  const listEl = document.getElementById("tr-list") as HTMLElement;
+  const listSubEl = document.getElementById("tr-list-sub") as HTMLElement;
+  const modesEl = document.getElementById("tr-modes") as HTMLElement;
+  const modeMetaEl = document.getElementById("tr-mode-meta") as HTMLElement;
+  const chartTitleEl = document.getElementById("tr-chart-title") as HTMLElement;
+  const chartSubEl = document.getElementById("tr-chart-sub") as HTMLElement;
+  const chartEl = document.getElementById("tr-chart") as HTMLElement;
+  const chartMetaEl = document.getElementById("tr-chart-meta") as HTMLElement;
+
+  const pad = (value: string) => value.padStart(2, "0");
+  const toDate = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  };
+  const toISO = (date: Date) =>
+    `${date.getFullYear()}-${pad(String(date.getMonth() + 1))}-${pad(String(date.getDate()))}`;
+  const shiftDays = (value: string, delta: number) => {
+    const date = toDate(value);
+    date.setDate(date.getDate() + delta);
+    return toISO(date);
+  };
+  const monthEnd = (month: string) => {
+    const [year, index] = month.split("-").map(Number);
+    return toISO(new Date(year, index, 0));
+  };
+  const monthCount = (start: string, stop: string) => {
+    const [startYear, startMonth] = start.split("-").map(Number);
+    const [endYear, endMonth] = stop.split("-").map(Number);
+    return Math.max(1, (endYear - startYear) * 12 + (endMonth - startMonth) + 1);
+  };
+  const weekStart = (value: string) => shiftDays(value, -((toDate(value).getDay() + 6) % 7));
+  const today = toISO(new Date());
+
+  const parseRate = (value: string | null): number | null => {
+    if (!value) return null;
+    const cleaned = value.replace(/%/g, "").trim();
+    const num = Number(cleaned);
+    return cleaned && Number.isFinite(num) ? num : null;
+  };
+  const fmtRate = (value: number | null) =>
+    value === null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+  const avgOf = (values: number[]) =>
+    values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  const toneOf = (value: string | null): Tone => {
+    if (value === "成功" || value === "非常成功") return "win";
+    if (value === "失败") return "lose";
+    if (value === "普通") return "normal";
+    return "none";
+  };
+  const baseMode = (value: string | null) => {
+    if (!value) return "未标注";
+    const base = value
+      .split(/[；;]/)[0]
+      .replace(/（[^）]*）/g, "")
+      .replace(/\([^)]*\)/g, "")
+      .trim();
+    return base || "未标注";
+  };
+  const esc = (value: string) =>
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+
+  const allDates = entries.map(entry => entry.d).sort();
+  const minDate = allDates[0] ?? "";
+  const maxDate = allDates[allDates.length - 1] ?? "";
+  let rangeStart = `${today.slice(0, 7)}-01`;
+  let rangeEnd = monthEnd(today.slice(0, 7));
+  let activePreset: string | null = "month";
+  let resultFilter: "all" | Tone = "all";
+
+  const rangeEntries = () => entries.filter(entry => entry.d >= rangeStart && entry.d <= rangeEnd);
+  const visibleEntries = () => {
+    const ranged = rangeEntries();
+    return resultFilter === "all" ? ranged : ranged.filter(entry => toneOf(entry.res) === resultFilter);
+  };
+
+  function renderLast() {
+    lastEl.innerHTML = `最近复盘 · <b>${esc(payload.stats.latest ?? "—")}</b>`;
+  }
+
+  function renderStats() {
+    const ranged = rangeEntries();
+    const evaluated = ranged.filter(entry => toneOf(entry.res) !== "none");
+    const wins = ranged.filter(entry => toneOf(entry.res) === "win").length;
+    const winRate = evaluated.length ? Math.round((wins / evaluated.length) * 100) : null;
+    const avg = avgOf(
+      ranged.map(entry => parseRate(entry.r)).filter((value): value is number => value !== null)
+    );
+    const notes = ranged.filter(entry => entry.note).length;
+
+    statTotalEl.innerHTML = `${ranged.length}<small>笔</small>`;
+    statWinEl.innerHTML = `${winRate ?? "—"}<small>%</small>`;
+    statAvgEl.innerHTML = `${fmtRate(avg)}<small>每笔</small>`;
+    statNoteEl.innerHTML = `${notes}<small>条</small>`;
+  }
+
+  function renderSummary() {
+    const ranged = rangeEntries();
+    if (!ranged.length) {
+      summaryEl.innerHTML = `<b>${rangeStart}</b> ~ <b>${rangeEnd}</b> · 所选区间没有复盘记录`;
+      return;
+    }
+
+    const evaluated = ranged.filter(entry => toneOf(entry.res) !== "none");
+    const wins = ranged.filter(entry => toneOf(entry.res) === "win").length;
+    const notes = ranged.filter(entry => entry.note).length;
+    const avg = avgOf(
+      ranged.map(entry => parseRate(entry.r)).filter((value): value is number => value !== null)
+    );
+
+    summaryEl.innerHTML = [
+      `<b>${rangeStart}</b> ~ <b>${rangeEnd}</b>`,
+      `共 <b>${ranged.length}</b> 笔`,
+      evaluated.length ? `胜率 <b>${Math.round((wins / evaluated.length) * 100)}%</b>` : "",
+      `均收益 <b>${fmtRate(avg)}</b>`,
+      `反思 <b>${notes}</b> 条`
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  function renderFilterCounts() {
+    const ranged = rangeEntries();
+    const counts: Record<"all" | Tone, number> = { all: ranged.length, win: 0, normal: 0, lose: 0, none: 0 };
+    for (const entry of ranged) counts[toneOf(entry.res)] += 1;
+
+    for (const button of filtersEl.querySelectorAll<HTMLButtonElement>("button[data-filter]")) {
+      const key = button.dataset.filter as "all" | Tone;
+      const badge = button.querySelector("b");
+      if (badge) badge.textContent = String(counts[key] ?? 0);
+      button.setAttribute("aria-pressed", String(key === resultFilter));
+    }
+  }
+
+  function evalTag(label: string, value: string | null) {
+    const text = value?.trim() ?? "";
+    const tone = text.startsWith("不符合")
+      ? "bad"
+      : text.startsWith("符合") || text.startsWith("复合")
+        ? "good"
+        : "none";
+    const short = tone === "good" ? "符合" : tone === "bad" ? "不符合" : "未评";
+    return `<span class="tr-eval-item is-${tone}" title="${esc(text || "未填写")}">${label} · ${short}</span>`;
+  }
+
+  function holdLabel(value: string | null) {
+    if (!value) return "持有 —";
+    return `持有 ${value}${/^\d+(\.\d+)?$/.test(value) ? " 天" : ""}`;
+  }
+
+  function renderList() {
+    const list = visibleEntries();
+    if (!list.length) {
+      listSubEl.textContent = "按复盘月份倒序，完整保留每一次的反思与买卖评价";
+      listEl.innerHTML = `<p class="tr-empty">${
+        resultFilter === "all"
+          ? "所选区间没有复盘记录"
+          : `所选区间没有「${RESULT_LABELS[resultFilter]}」的复盘记录`
+      }</p>`;
+      return;
+    }
+
+    const groups = new Map<string, Entry[]>();
+    for (const entry of list) {
+      const month = entry.d.slice(0, 7);
+      const bucket = groups.get(month) ?? [];
+      bucket.push(entry);
+      groups.set(month, bucket);
+    }
+
+    const months = [...groups.keys()].sort().reverse();
+    const parts: string[] = [];
+
+    for (const month of months) {
+      const items = groups.get(month) ?? [];
+      const rows = items
+        .map(entry => {
+          const tone = toneOf(entry.res);
+          const color = RESULT_COLORS[tone];
+          const rate = parseRate(entry.r);
+          const retClass = rate === null ? "is-flat" : rate > 0 ? "is-up" : rate < 0 ? "is-down" : "is-flat";
+          const retText = rate === null ? "—" : `${rate > 0 ? "+" : ""}${entry.r}`;
+          const weekday = WEEKDAYS[toDate(entry.d).getDay()];
+
+          return `<article class="tr-item" style="--rc:${color}">
+            <header class="tr-item-head">
+              <span class="tr-date"><b>${entry.d.slice(5)}</b><span>周${weekday}</span></span>
+              <h3 class="tr-stock">${esc(entry.s)}</h3>
+              <span class="tr-mode-tag">${esc(baseMode(entry.m))}</span>
+              <span class="tr-res" style="--rc:${color}">${entry.res ? esc(entry.res) : "未评"}</span>
+              ${entry.np ? `<span class="tr-np">未参与</span>` : ""}
+              <span class="tr-ret ${retClass}">${esc(retText)}</span>
+              <span class="tr-meta-inline">${holdLabel(entry.h)}</span>
+              ${entry.a ? `<span class="tr-meta-inline">金额 ${esc(entry.a)}</span>` : ""}
+            </header>
+            <blockquote class="tr-note${entry.note ? "" : " is-empty"}">${
+              entry.note ? esc(entry.note) : "这笔没有留下反思"
+            }</blockquote>
+            <footer class="tr-eval">${evalTag("买", entry.buy)}${evalTag("卖", entry.sell)}</footer>
+          </article>`;
+        })
+        .join("");
+
+      parts.push(
+        `<div class="tr-month"><span>${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</span><b>${items.length} 笔</b></div>${rows}`
+      );
+    }
+
+    listEl.innerHTML = parts.join("");
+    listSubEl.textContent =
+      resultFilter === "all"
+        ? `按复盘月份倒序 · ${list.length} 笔 · ${months.length} 个月`
+        : `仅看「${RESULT_LABELS[resultFilter]}」· ${list.length} 笔 · ${months.length} 个月`;
+  }
+
+  function renderModes() {
+    const ranged = rangeEntries();
+    if (!ranged.length) {
+      modesEl.innerHTML = `<p class="tr-empty">暂无数据</p>`;
+      modeMetaEl.textContent = "—";
+      return;
+    }
+
+    const groups = new Map<string, Entry[]>();
+    for (const entry of ranged) {
+      const key = baseMode(entry.m);
+      const bucket = groups.get(key) ?? [];
+      bucket.push(entry);
+      groups.set(key, bucket);
+    }
+
+    const rows = [...groups.entries()]
+      .map(([name, items]) => {
+        const evaluated = items.filter(entry => toneOf(entry.res) !== "none");
+        const wins = items.filter(entry => toneOf(entry.res) === "win").length;
+        const avg = avgOf(
+          items.map(entry => parseRate(entry.r)).filter((value): value is number => value !== null)
+        );
+        return { name, count: items.length, evaluated: evaluated.length, wins, avg };
+      })
+      .sort((a, b) => b.count - a.count);
+
+    const max = rows[0]?.count ?? 1;
+    modesEl.innerHTML = rows
+      .map(row => {
+        const width = Math.max(4, (row.count / max) * 100);
+        const winRate = row.evaluated ? `${Math.round((row.wins / row.evaluated) * 100)}%` : "—";
+        return `<div class="tr-mode">
+          <span class="tr-mode-name" title="${esc(row.name)}">${esc(row.name)}</span>
+          <span class="tr-mode-track"><i style="width:${width.toFixed(1)}%"></i></span>
+          <span class="tr-mode-stat">${row.count} 笔 · 胜率 ${winRate} · 均 ${fmtRate(row.avg)}</span>
+        </div>`;
+      })
+      .join("");
+
+    modeMetaEl.textContent = `${rows.length} 种模式 · ${ranged.length} 笔`;
+  }
+
+  function renderChart() {
+    const ranged = rangeEntries();
+    const daily = monthCount(rangeStart, rangeEnd) <= 1;
+
+    chartTitleEl.textContent = daily ? "逐日收益" : "月度收益";
+    chartSubEl.textContent = daily
+      ? "所选区间内每个交易日的平均收益率"
+      : "每个月复盘记录的平均收益率";
+
+    if (!ranged.length) {
+      chartEl.innerHTML = `<p class="tr-empty">暂无数据</p>`;
+      chartMetaEl.textContent = "—";
+      return;
+    }
+
+    const buckets = new Map<string, number[]>();
+    for (const entry of ranged) {
+      const key = daily ? entry.d : entry.d.slice(0, 7);
+      const bucket = buckets.get(key) ?? [];
+      const rate = parseRate(entry.r);
+      if (rate !== null) bucket.push(rate);
+      buckets.set(key, bucket);
+    }
+
+    const keys: string[] = [];
+    if (daily) {
+      for (let cursor = rangeStart; cursor <= rangeEnd; cursor = shiftDays(cursor, 1)) keys.push(cursor);
+    } else {
+      let year = Number(rangeStart.slice(0, 4));
+      let month = Number(rangeStart.slice(5, 7));
+      const endYear = Number(rangeEnd.slice(0, 4));
+      const endMonth = Number(rangeEnd.slice(5, 7));
+      while (year < endYear || (year === endYear && month <= endMonth)) {
+        keys.push(`${year}-${pad(String(month))}`);
+        month += 1;
+        if (month > 12) {
+          month = 1;
+          year += 1;
+        }
+      }
+    }
+
+    const avgs = keys.map(key => avgOf(buckets.get(key) ?? []));
+    const maxAbs = Math.max(...avgs.map(value => (value === null ? 0 : Math.abs(value))), 1);
+
+    chartEl.innerHTML = keys
+      .map((key, index) => {
+        const value = avgs[index];
+        const list = buckets.get(key) ?? [];
+        const showYear = daily ? index === 0 : index === 0 || key.slice(5, 7) === "01";
+        const height = value === null ? 0 : Math.max(4, (Math.abs(value) / maxAbs) * 46);
+        const tone =
+          value === null || !list.length
+            ? "is-empty"
+            : value > 0
+              ? "is-pos"
+              : value < 0
+                ? "is-neg"
+                : "is-flat";
+        const barStyle =
+          tone === "is-empty" || tone === "is-flat"
+            ? "height:2px"
+            : `height:${height.toFixed(1)}%`;
+
+        return `<div class="tr-col" title="${key} · 平均 ${fmtRate(value)} · ${list.length} 笔">
+          <div class="tr-col-body"><i class="tr-bar ${tone}" style="${barStyle}"></i></div>
+          <span class="tr-col-label">${daily ? key.slice(8, 10) : key.slice(5, 7)}</span>
+          <span class="tr-col-year">${showYear ? (daily ? key.slice(0, 7) : key.slice(0, 4)) : ""}</span>
+        </div>`;
+      })
+      .join("");
+
+    let bestIndex = -1;
+    let worstIndex = -1;
+    avgs.forEach((value, index) => {
+      if (value === null) return;
+      if (bestIndex < 0 || value > (avgs[bestIndex] as number)) bestIndex = index;
+      if (worstIndex < 0 || value < (avgs[worstIndex] as number)) worstIndex = index;
+    });
+
+    if (bestIndex < 0) {
+      chartMetaEl.textContent = `所选区间没有收益率记录 · ${keys.length} ${daily ? "天" : "个月"}`;
+      return;
+    }
+
+    const labelOf = (key: string) => (daily ? key.slice(5) : key);
+    const parts = [`最佳 ${labelOf(keys[bestIndex])} ${fmtRate(avgs[bestIndex])}`];
+    if (worstIndex !== bestIndex) {
+      parts.push(`最差 ${labelOf(keys[worstIndex])} ${fmtRate(avgs[worstIndex])}`);
+    }
+    parts.push(`${keys.length} ${daily ? "天" : "个月"}`);
+    chartMetaEl.textContent = parts.join(" · ");
+  }
+
+  function syncInputs() {
+    startEl.value = rangeStart;
+    endEl.value = rangeEnd;
+
+    const wholeMonth =
+      rangeStart &&
+      rangeEnd &&
+      rangeStart.slice(0, 7) === rangeEnd.slice(0, 7) &&
+      rangeStart.endsWith("-01") &&
+      rangeEnd === monthEnd(rangeStart.slice(0, 7));
+    monthEl.value = wholeMonth ? rangeStart.slice(0, 7) : "all";
+
+    for (const button of presetsEl.querySelectorAll<HTMLButtonElement>("button")) {
+      button.setAttribute("aria-pressed", String(button.dataset.preset === activePreset));
+    }
+  }
+
+  function renderMonths() {
+    const months = [...new Set([...entries.map(entry => entry.d.slice(0, 7)), today.slice(0, 7)])]
+      .sort()
+      .reverse();
+    monthEl.innerHTML =
+      `<option value="all">全部</option>` +
+      months
+        .map(month => `<option value="${month}">${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</option>`)
+        .join("");
+  }
+
+  function renderAll() {
+    renderStats();
+    renderSummary();
+    renderFilterCounts();
+    renderChart();
+    renderModes();
+    renderList();
+  }
+
+  function applyPreset(key: string) {
+    activePreset = key;
+    if (key === "week") {
+      rangeStart = weekStart(today);
+      rangeEnd = shiftDays(rangeStart, 6);
+    } else if (key === "last7") {
+      rangeStart = shiftDays(maxDate, -6);
+      rangeEnd = maxDate;
+    } else if (key === "last30") {
+      rangeStart = shiftDays(maxDate, -29);
+      rangeEnd = maxDate;
+    } else if (key === "month") {
+      rangeStart = `${today.slice(0, 7)}-01`;
+      rangeEnd = monthEnd(today.slice(0, 7));
+    } else if (key === "year") {
+      rangeStart = `${today.slice(0, 4)}-01-01`;
+      rangeEnd = today;
+    } else {
+      rangeStart = minDate;
+      rangeEnd = maxDate;
+    }
+
+    syncInputs();
+    renderAll();
+  }
+
+  presetsEl.addEventListener("click", event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-preset]");
+    if (button?.dataset.preset) applyPreset(button.dataset.preset);
+  });
+
+  filtersEl.addEventListener("click", event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-filter]");
+    const key = button?.dataset.filter as "all" | Tone | undefined;
+    if (!key) return;
+    resultFilter = key;
+    renderFilterCounts();
+    renderList();
+  });
+
+  monthEl.addEventListener("change", () => {
+    const value = monthEl.value;
+    if (value === "all") {
+      rangeStart = minDate;
+      rangeEnd = maxDate;
+      activePreset = null;
+    } else {
+      rangeStart = `${value}-01`;
+      rangeEnd = monthEnd(value);
+      activePreset = value === today.slice(0, 7) ? "month" : null;
+    }
+    syncInputs();
+    renderAll();
+  });
+
+  const onDateChange = () => {
+    let start = startEl.value || minDate;
+    let stop = endEl.value || maxDate;
+    if (start > stop) [start, stop] = [stop, start];
+    rangeStart = start;
+    rangeEnd = stop;
+    activePreset = null;
+    syncInputs();
+    renderAll();
+  };
+
+  startEl.addEventListener("change", onDateChange);
+  endEl.addEventListener("change", onDateChange);
+
+  renderLast();
+  renderMonths();
+  applyPreset("month");
+</script>

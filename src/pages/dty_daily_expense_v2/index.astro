@@ -35,16 +35,15 @@ const monthEnd = (month: string) => {
   return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
 };
 
-// 首屏按默认区间（最新数据所在月）渲染，与客户端初始筛选一致
-const latestMonth = data.entries.map(entry => entry.d).sort().pop()?.slice(0, 7) ?? "";
-const initialStart = latestMonth ? `${latestMonth}-01` : "";
-const initialEnd = latestMonth ? monthEnd(latestMonth) : "";
-const initialEntries = initialStart
-  ? data.entries.filter(entry => entry.d >= initialStart && entry.d <= initialEnd!)
-  : [];
+// 首屏按默认区间（当前自然月）渲染，与客户端初始筛选一致
+const now = new Date();
+const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+const initialStart = `${currentMonth}-01`;
+const initialEnd = monthEnd(currentMonth);
+const initialEntries = data.entries.filter(entry => entry.d >= initialStart && entry.d <= initialEnd);
 const initialTotal = initialEntries.reduce((sum, entry) => sum + entry.a, 0);
-const initialDays = initialEnd ? Number(initialEnd.slice(8, 10)) : 0;
-const initialSpan = latestMonth ? `${latestMonth} ~ ${latestMonth}` : "—";
+const initialDays = Number(initialEnd.slice(8, 10));
+const initialSpan = `${currentMonth} ~ ${currentMonth}`;
 
 const syncedLabel = data.syncedAt
   ? new Intl.DateTimeFormat("zh-CN", {
@@ -78,7 +77,7 @@ const syncedLabel = data.syncedAt
       </div>
       <div>
         <dt>跨度</dt>
-        <dd class="exp-span" id="exp-stat-span">{initialSpan}<small>{latestMonth ? 1 : 0} 个月</small></dd>
+        <dd class="exp-span" id="exp-stat-span">{initialSpan}<small>1 个月</small></dd>
       </div>
     </dl>
   </section>
@@ -766,6 +765,7 @@ const syncedLabel = data.syncedAt
     return Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
   };
   const weekStart = (value: string) => shiftDays(value, -((toDate(value).getDay() + 6) % 7));
+  const today = toISO(new Date());
 
   const inRange = (entry: Entry) => entry.d >= rangeStart && entry.d <= rangeEnd;
   const rangeList = () => entries.filter(inRange);
@@ -788,7 +788,7 @@ const syncedLabel = data.syncedAt
     activePreset = key;
 
     if (key === "week") {
-      rangeStart = weekStart(maxDate);
+      rangeStart = weekStart(today);
       rangeEnd = shiftDays(rangeStart, 6);
     } else if (key === "last7") {
       rangeStart = shiftDays(maxDate, -6);
@@ -797,11 +797,11 @@ const syncedLabel = data.syncedAt
       rangeStart = shiftDays(maxDate, -29);
       rangeEnd = maxDate;
     } else if (key === "month") {
-      rangeStart = `${maxDate.slice(0, 7)}-01`;
-      rangeEnd = monthEnd(maxDate.slice(0, 7));
+      rangeStart = `${today.slice(0, 7)}-01`;
+      rangeEnd = monthEnd(today.slice(0, 7));
     } else if (key === "year") {
-      rangeStart = `${maxDate.slice(0, 4)}-01-01`;
-      rangeEnd = maxDate;
+      rangeStart = `${today.slice(0, 4)}-01-01`;
+      rangeEnd = today;
     } else {
       rangeStart = minDate;
       rangeEnd = maxDate;
@@ -813,7 +813,7 @@ const syncedLabel = data.syncedAt
   }
 
   function renderMonths() {
-    const months = [...new Set(entries.map(entry => entry.d.slice(0, 7)))].sort().reverse();
+    const months = [...new Set([...entries.map(entry => entry.d.slice(0, 7)), today.slice(0, 7)])].sort().reverse();
     monthEl.innerHTML = [
       `<option value="all">全部</option>`,
       ...months.map(month => `<option value="${month}">${month.slice(0, 4)} 年 ${month.slice(5, 7)} 月</option>`)
@@ -989,7 +989,7 @@ const syncedLabel = data.syncedAt
       applyPreset("all");
       return;
     }
-    activePreset = month === maxDate.slice(0, 7) ? "month" : null;
+    activePreset = month === today.slice(0, 7) ? "month" : null;
     rangeStart = `${month}-01`;
     rangeEnd = monthEnd(month);
     limit = PAGE_SIZE;

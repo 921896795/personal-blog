@@ -3,6 +3,7 @@
  *
  *   dty_daily_diary     -> public/data/daily-diary.json
  *   dty_daily_feedback  -> public/data/daily-feedback.json
+ *   dty_quarter_okr     -> public/data/quarter-okr.json
  *
  * 用法：
  *   node scripts/sync-data.mjs            # 缺少配置时跳过，保留现有快照（供构建使用）
@@ -149,6 +150,45 @@ try {
       end: dates[dates.length - 1] ?? null
     },
     entries: feedbackEntries
+  });
+
+  // ---------------------------------------------------------------- 季度 OKR
+  const [okrRows] = await connection.query(
+    `SELECT id, year, quarter, theme, objective, result, progress, status, action_status, notes,
+            DATE_FORMAT(updated_at, '%Y-%m-%d') AS updated
+       FROM dty_quarter_okr
+      ORDER BY year DESC, quarter DESC, id ASC`
+  );
+
+  const okrEntries = okrRows.map(row => ({
+    id: Number(row.id),
+    year: Number(row.year),
+    quarter: Number(row.quarter),
+    theme: (row.theme || "").trim() || "其他",
+    objective: (row.objective || "").trim(),
+    result: (row.result || "").trim(),
+    progress: Number(row.progress || 0),
+    status: (row.status || "").trim() || "未开始",
+    actionStatus: (row.action_status || "").trim() || "进行中",
+    notes: text(row.notes),
+    updated: row.updated ?? null
+  }));
+
+  const quarters = new Set(okrEntries.map(entry => `${entry.year}-Q${entry.quarter}`));
+  const objectives = new Set(okrEntries.map(entry => `${entry.year}-Q${entry.quarter}|${entry.theme}|${entry.objective}`));
+  const avgProgress = okrEntries.length
+    ? round(okrEntries.reduce((sum, entry) => sum + entry.progress, 0) / okrEntries.length)
+    : 0;
+
+  writeSnapshot("quarter-okr.json", {
+    syncedAt: new Date().toISOString(),
+    stats: {
+      quarters: quarters.size,
+      objectives: objectives.size,
+      krs: okrEntries.length,
+      avgProgress
+    },
+    entries: okrEntries
   });
 } catch (error) {
   fallback(`连接或查询失败：${error.message}`);

@@ -1,0 +1,893 @@
+---
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import BaseLayout from "@/layouts/BaseLayout.astro";
+
+type Entry = {
+  id: number;
+  year: number;
+  quarter: number;
+  theme: string;
+  objective: string;
+  result: string;
+  progress: number;
+  status: string;
+  actionStatus: string;
+  notes: string | null;
+  updated: string | null;
+};
+
+type Payload = {
+  syncedAt: string;
+  stats: { quarters: number; objectives: number; krs: number; avgProgress: number };
+  entries: Entry[];
+};
+
+const dataPath = resolve(process.cwd(), "public/data/quarter-okr.json");
+const data: Payload = existsSync(dataPath)
+  ? JSON.parse(readFileSync(dataPath, "utf8"))
+  : {
+      syncedAt: "",
+      stats: { quarters: 0, objectives: 0, krs: 0, avgProgress: 0 },
+      entries: []
+    };
+
+const THEME_META: Record<string, { en: string; tone: string }> = {
+  工作: { en: "Work", tone: "var(--okr-work)" },
+  生活: { en: "Life", tone: "var(--okr-life)" },
+  交易: { en: "Trading", tone: "var(--okr-trade)" },
+  其他: { en: "Others", tone: "var(--okr-other)" }
+};
+
+const THEME_ORDER = ["工作", "生活", "交易", "其他"];
+const STATUS_TONE: Record<string, string> = {
+  已完成: "done",
+  进行中: "active",
+  未开始: "idle",
+  已关闭: "closed",
+  已放弃: "closed"
+};
+
+const themeTone = (name: string) => THEME_META[name]?.tone ?? "var(--okr-other)";
+const themeEn = (name: string) => THEME_META[name]?.en ?? "Others";
+const statusTone = (status: string) => STATUS_TONE[status] ?? "idle";
+const cleanNotes = (notes: string | null) => (notes ? notes.replace(/\*\*/g, "") : null);
+
+type Objective = {
+  name: string;
+  progress: number;
+  status: string;
+  actionStatus: string;
+  krs: Entry[];
+};
+
+type Theme = { name: string; en: string; tone: string; krs: number; objectives: Objective[] };
+
+type Quarter = {
+  key: string;
+  year: number;
+  quarter: number;
+  progress: number;
+  krs: number;
+  objectives: number;
+  counts: Record<string, number>;
+  themes: Theme[];
+  lastUpdated: string | null;
+};
+
+const objectiveStatus = (krs: Entry[]) => {
+  if (krs.every(kr => kr.status === "已完成")) return "已完成";
+  if (krs.every(kr => kr.status === "已关闭" || kr.status === "已放弃")) return "已关闭";
+  if (krs.every(kr => kr.status === "未开始")) return "未开始";
+  return "进行中";
+};
+
+const quarterMap = new Map<string, Entry[]>();
+for (const entry of data.entries) {
+  const key = `${entry.year}-Q${entry.quarter}`;
+  if (!quarterMap.has(key)) quarterMap.set(key, []);
+  quarterMap.get(key)!.push(entry);
+}
+
+const quarters: Quarter[] = [...quarterMap.entries()].map(([key, list]) => {
+  const themeMap = new Map<string, Entry[]>();
+  for (const entry of list) {
+    if (!themeMap.has(entry.theme)) themeMap.set(entry.theme, []);
+    themeMap.get(entry.theme)!.push(entry);
+  }
+
+  const themes: Theme[] = [...themeMap.keys()]
+    .sort((a, b) => {
+      const ia = THEME_ORDER.indexOf(a);
+      const ib = THEME_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    })
+    .map(name => {
+      const themeList = themeMap.get(name)!;
+      const objectiveMap = new Map<string, Entry[]>();
+      for (const entry of themeList) {
+        if (!objectiveMap.has(entry.objective)) objectiveMap.set(entry.objective, []);
+        objectiveMap.get(entry.objective)!.push(entry);
+      }
+
+      const objectives: Objective[] = [...objectiveMap.entries()].map(([objective, krs]) => ({
+        name: objective,
+        progress: Math.round(krs.reduce((total, kr) => total + kr.progress, 0) / krs.length),
+        status: objectiveStatus(krs),
+        actionStatus: krs[0]?.actionStatus ?? "进行中",
+        krs
+      }));
+
+      return {
+        name,
+        en: themeEn(name),
+        tone: themeTone(name),
+        krs: themeList.length,
+        objectives
+      };
+    });
+
+  const counts: Record<string, number> = { 已完成: 0, 进行中: 0, 未开始: 0, 已关闭: 0 };
+  const objectiveCount = themes.reduce((total, theme) => {
+    for (const objective of theme.objectives) {
+      const status = objective.status === "已放弃" ? "已关闭" : objective.status;
+      counts[status] = (counts[status] ?? 0) + 1;
+    }
+    return total + theme.objectives.length;
+  }, 0);
+
+  const updated = list.map(entry => entry.updated).filter((value): value is string => Boolean(value)).sort();
+
+  return {
+    key,
+    year: list[0].year,
+    quarter: list[0].quarter,
+    progress: Math.round(list.reduce((total, entry) => total + entry.progress, 0) / list.length),
+    krs: list.length,
+    objectives: objectiveCount,
+    counts,
+    themes,
+    lastUpdated: updated[updated.length - 1] ?? null
+  };
+});
+
+const now = new Date();
+const currentKey = `${now.getFullYear()}-Q${Math.floor(now.getMonth() / 3) + 1}`;
+const defaultKey = quarters.some(quarter => quarter.key === currentKey) ? currentKey : quarters[0]?.key ?? "";
+
+const syncedLabel = data.syncedAt
+  ? new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(data.syncedAt))
+  : "—";
+---
+
+<BaseLayout title="OKR" description="按季度拆开的目标与关键结果">
+  <section class="container okr-hero">
+    <p class="eyebrow">Quarterly OKR</p>
+    <h1 class="okr-title">OKR<span>.</span></h1>
+    <p class="lead okr-lead">每个季度给自己定几个目标，再把它们拆成能验收的关键结果。</p>
+
+    <dl class="okr-stats">
+      <div>
+        <dt>季度</dt>
+        <dd>{data.stats.quarters}<small>Q</small></dd>
+      </div>
+      <div>
+        <dt>目标</dt>
+        <dd>{data.stats.objectives}<small>个</small></dd>
+      </div>
+      <div>
+        <dt>关键结果</dt>
+        <dd>{data.stats.krs}<small>条</small></dd>
+      </div>
+      <div>
+        <dt>平均进度</dt>
+        <dd>{data.stats.avgProgress}<small>%</small></dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="container">
+    {
+      quarters.length === 0 ? (
+        <p class="okr-empty">还没有 OKR 记录。先运行 <code>npm run sync:data</code> 同步数据。</p>
+      ) : (
+        <>
+          <div class="okr-tabs" id="okr-tabs" role="tablist" aria-label="选择季度">
+            {quarters.map(quarter => (
+              <button
+                type="button"
+                role="tab"
+                class:list={["okr-tab", { "is-active": quarter.key === defaultKey }]}
+                data-quarter={quarter.key}
+                aria-pressed={String(quarter.key === defaultKey)}
+              >
+                <span class="okr-tab-q">Q{quarter.quarter}</span>
+                <span class="okr-tab-y">{quarter.year}</span>
+                <span class="okr-tab-n">{quarter.krs} KR</span>
+              </button>
+            ))}
+          </div>
+
+          <div class="okr-quarters" id="okr-quarters">
+            {quarters.map(quarter => (
+              <section class="okr-quarter" data-quarter={quarter.key} hidden={quarter.key !== defaultKey}>
+                <header class="okr-qhead">
+                  <div class="okr-qbadge">
+                    <b>Q{quarter.quarter}</b>
+                    <span>{quarter.year}</span>
+                  </div>
+
+                  <div class="okr-qtitle">
+                    <h2>{quarter.year} 年第 {quarter.quarter} 季度</h2>
+                    <p>
+                      {quarter.objectives} 个目标 · {quarter.krs} 个关键结果 · 平均进度 {quarter.progress}%
+                      {quarter.lastUpdated && <span class="okr-updated"> · 最近更新 {quarter.lastUpdated}</span>}
+                    </p>
+                  </div>
+
+                  <div class="okr-qmeter">
+                    <span class="okr-qbar">
+                      <i style={`width:${quarter.progress}%`} />
+                    </span>
+                    <span class="okr-qcounts">
+                      {Object.entries(quarter.counts)
+                        .filter(([, count]) => count > 0)
+                        .map(([status, count]) => (
+                          <em data-tone={statusTone(status)}>
+                            {status} {count}
+                          </em>
+                        ))}
+                    </span>
+                  </div>
+                </header>
+
+                {quarter.themes.map(theme => (
+                  <div class="okr-theme" style={`--tone:${theme.tone}`}>
+                    <header class="okr-theme-head">
+                      <span class="okr-theme-dot" />
+                      <h3>{theme.name}</h3>
+                      <em>{theme.en}</em>
+                      <span class="okr-theme-count">
+                        {theme.objectives.length} 目标 · {theme.krs} KR
+                      </span>
+                    </header>
+
+                    <div class="okr-objectives">
+                      {theme.objectives.map(objective => (
+                        <article class="okr-obj">
+                          <div
+                            class="okr-ring"
+                            style={`--p:${objective.progress}`}
+                            role="img"
+                            aria-label={`${objective.name} 进度 ${objective.progress}%`}
+                          >
+                            <span>
+                              {objective.progress}
+                              <i>%</i>
+                            </span>
+                          </div>
+
+                          <div class="okr-obj-main">
+                            <header class="okr-obj-head">
+                              <h4>{objective.name}</h4>
+                              <span class="okr-badge" data-tone={statusTone(objective.status)}>
+                                {objective.status}
+                              </span>
+                              {objective.actionStatus !== objective.status && (
+                                <span class="okr-badge is-ghost" data-tone={statusTone(objective.actionStatus)}>
+                                  OKR {objective.actionStatus}
+                                </span>
+                              )}
+                            </header>
+
+                            <ul class="okr-krs">
+                              {objective.krs.map(kr => (
+                                <li class="okr-kr">
+                                  <span class="okr-kr-dot" data-tone={statusTone(kr.status)} />
+                                  <div class="okr-kr-body">
+                                    <p class="okr-kr-text">{kr.result}</p>
+
+                                    <div class="okr-kr-meta">
+                                      <span data-tone={statusTone(kr.status)}>{kr.status}</span>
+                                      {kr.progress > 0 && (
+                                        <>
+                                          <span class="okr-kr-bar">
+                                            <i style={`width:${kr.progress}%`} />
+                                          </span>
+                                          <span>{kr.progress}%</span>
+                                        </>
+                                      )}
+                                    </div>
+
+                                    {cleanNotes(kr.notes) && (
+                                      <blockquote class="okr-note">{cleanNotes(kr.notes)}</blockquote>
+                                    )}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </section>
+            ))}
+          </div>
+        </>
+      )
+    }
+
+    <p class="okr-source">
+      数据来源：MySQL 表 <code>dty_quarter_okr</code> · 最近同步 {syncedLabel}
+    </p>
+  </section>
+</BaseLayout>
+
+<style is:global>
+  :root {
+    --okr-work: #2f6f73;
+    --okr-life: #6f8f66;
+    --okr-trade: #c98a4b;
+    --okr-other: #98a4b0;
+    --okr-done: #4c8763;
+    --okr-active: #c08a3e;
+    --okr-idle: #98a4b0;
+    --okr-closed: #b46a5c;
+  }
+
+  :root.dark {
+    --okr-work: #4fa3a7;
+    --okr-life: #94bd8a;
+    --okr-trade: #e0aa6a;
+    --okr-other: #aebac6;
+    --okr-done: #7fc39a;
+    --okr-active: #e0b06a;
+    --okr-idle: #aebac6;
+    --okr-closed: #d98b7c;
+  }
+</style>
+
+<style>
+  .okr-hero {
+    padding-bottom: 10px;
+  }
+
+  .okr-title {
+    margin: 0;
+    font-size: clamp(3rem, 11vw, 6.2rem);
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    line-height: 1;
+  }
+
+  .okr-title span {
+    color: var(--accent);
+  }
+
+  .okr-lead {
+    margin-top: 14px;
+  }
+
+  .okr-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin: 26px 0 0;
+    padding: 0;
+  }
+
+  .okr-stats div {
+    position: relative;
+    display: grid;
+    gap: 2px;
+    padding: 14px 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .okr-stats div::after {
+    content: "";
+    position: absolute;
+    inset: auto -30% -60% auto;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent), transparent 80%), transparent 70%);
+  }
+
+  .okr-stats dt {
+    color: var(--muted);
+    font-size: 0.76rem;
+    letter-spacing: 0.16em;
+  }
+
+  .okr-stats dd {
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .okr-stats dd small {
+    margin-left: 4px;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .okr-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 28px 0 22px;
+  }
+
+  .okr-tab {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 0 6px;
+    align-items: baseline;
+    padding: 10px 20px 9px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+
+  .okr-tab:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+    transform: translateY(-1px);
+  }
+
+  .okr-tab .okr-tab-q {
+    font-size: 1.3rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+  }
+
+  .okr-tab .okr-tab-y {
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .okr-tab .okr-tab-n {
+    grid-column: 1 / -1;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 0.68rem;
+    letter-spacing: 0.14em;
+  }
+
+  .okr-tab.is-active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--surface-strong);
+  }
+
+  .okr-tab.is-active .okr-tab-n {
+    color: color-mix(in srgb, var(--surface-strong), transparent 25%);
+  }
+
+  .okr-quarter {
+    display: grid;
+    gap: 20px;
+  }
+
+  .okr-quarter[hidden] {
+    display: none;
+  }
+
+  .okr-qhead {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 0.9fr);
+    gap: 12px 20px;
+    align-items: center;
+    padding: 18px 20px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background:
+      radial-gradient(120% 160% at 0% 0%, color-mix(in srgb, var(--accent), transparent 91%), transparent 60%),
+      var(--surface);
+  }
+
+  .okr-qbadge {
+    display: grid;
+    place-items: center;
+    width: 66px;
+    height: 66px;
+    border: 1px solid color-mix(in srgb, var(--accent), transparent 55%);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--accent), transparent 88%);
+    color: var(--accent-strong);
+    line-height: 1;
+  }
+
+  .okr-qbadge b {
+    font-size: 1.35rem;
+    font-weight: 800;
+  }
+
+  .okr-qbadge span {
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+  }
+
+  .okr-qtitle h2 {
+    margin: 0 0 4px;
+    font-size: 1.3rem;
+  }
+
+  .okr-qtitle p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .okr-updated {
+    opacity: 0.8;
+  }
+
+  .okr-qmeter {
+    display: grid;
+    gap: 8px;
+    justify-items: end;
+  }
+
+  .okr-qbar {
+    display: block;
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--line), transparent 35%);
+    overflow: hidden;
+  }
+
+  .okr-qbar i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent), transparent 25%), var(--accent));
+  }
+
+  .okr-qcounts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+
+  .okr-qcounts em {
+    padding: 2px 9px;
+    border: 1px solid color-mix(in srgb, var(--tone), transparent 62%);
+    border-radius: 999px;
+    color: var(--tone);
+    font-size: 0.7rem;
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .okr-theme {
+    display: grid;
+    gap: 12px;
+  }
+
+  .okr-theme-head {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .okr-theme-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--tone);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--tone), transparent 82%);
+    align-self: center;
+  }
+
+  .okr-theme-head h3 {
+    margin: 0;
+    font-size: 1.05rem;
+  }
+
+  .okr-theme-head em {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-style: normal;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .okr-theme-count {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 0.76rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .okr-objectives {
+    display: grid;
+    gap: 12px;
+  }
+
+  .okr-obj {
+    display: grid;
+    grid-template-columns: 78px minmax(0, 1fr);
+    gap: 18px;
+    padding: 18px 20px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--tone);
+    border-radius: 14px;
+    background: var(--surface);
+    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  }
+
+  .okr-obj:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow);
+  }
+
+  .okr-ring {
+    --p: 0;
+    position: relative;
+    display: grid;
+    place-items: center;
+    align-self: start;
+    width: 78px;
+    height: 78px;
+    border-radius: 50%;
+    background: conic-gradient(
+      var(--tone) calc(var(--p) * 1%),
+      color-mix(in srgb, var(--line), transparent 25%) 0
+    );
+  }
+
+  .okr-ring::after {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border-radius: 50%;
+    background: var(--surface);
+  }
+
+  .okr-ring span {
+    position: relative;
+    z-index: 1;
+    font-size: 1.2rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .okr-ring i {
+    margin-left: 1px;
+    color: var(--muted);
+    font-size: 0.62rem;
+    font-style: normal;
+  }
+
+  .okr-obj-main {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .okr-obj-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+  }
+
+  .okr-obj-head h4 {
+    margin: 0;
+    font-size: 1.05rem;
+    letter-spacing: 0.01em;
+  }
+
+  .okr-badge {
+    padding: 2px 9px;
+    border: 1px solid color-mix(in srgb, var(--tone), transparent 60%);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--tone), transparent 90%);
+    color: var(--tone);
+    font-size: 0.7rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .okr-badge.is-ghost {
+    border-style: dashed;
+    background: none;
+  }
+
+  .okr-krs {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .okr-kr {
+    display: grid;
+    grid-template-columns: 9px minmax(0, 1fr);
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--surface-strong), transparent 40%);
+  }
+
+  .okr-kr-dot {
+    width: 7px;
+    height: 7px;
+    margin-top: 8px;
+    border-radius: 50%;
+    background: var(--tone);
+  }
+
+  .okr-kr-body {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .okr-kr-text {
+    margin: 0;
+    font-size: 0.94rem;
+    line-height: 1.6;
+  }
+
+  .okr-kr-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .okr-kr-meta span[data-tone] {
+    color: var(--tone);
+    font-weight: 700;
+  }
+
+  .okr-kr-bar {
+    display: block;
+    width: 96px;
+    height: 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--line), transparent 30%);
+    overflow: hidden;
+  }
+
+  .okr-kr-bar i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--tone);
+  }
+
+  .okr-note {
+    margin: 4px 0 0;
+    padding: 8px 12px;
+    border-left: 2px solid color-mix(in srgb, var(--tone), transparent 55%);
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--tone), transparent 94%);
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.7;
+  }
+
+  [data-tone="done"] {
+    --tone: var(--okr-done);
+  }
+
+  [data-tone="active"] {
+    --tone: var(--okr-active);
+  }
+
+  [data-tone="idle"] {
+    --tone: var(--okr-idle);
+  }
+
+  [data-tone="closed"] {
+    --tone: var(--okr-closed);
+  }
+
+  .okr-empty {
+    padding: 48px 0;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .okr-source {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .okr-source code {
+    color: var(--accent-strong);
+  }
+
+  @media (max-width: 760px) {
+    .okr-qhead {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .okr-qmeter {
+      grid-column: 1 / -1;
+      justify-items: start;
+    }
+
+    .okr-qcounts {
+      justify-content: flex-start;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .okr-obj {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .okr-ring {
+      width: 60px;
+      height: 60px;
+    }
+
+    .okr-ring::after {
+      inset: 6px;
+    }
+
+    .okr-ring span {
+      font-size: 0.98rem;
+    }
+  }
+</style>
+
+<script>
+  const tabs = document.querySelectorAll<HTMLButtonElement>("#okr-tabs .okr-tab");
+  const panels = document.querySelectorAll<HTMLElement>(".okr-quarter");
+
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      const key = tab.dataset.quarter;
+
+      tabs.forEach(other => {
+        const active = other === tab;
+        other.classList.toggle("is-active", active);
+        other.setAttribute("aria-pressed", String(active));
+      });
+
+      panels.forEach(panel => {
+        panel.hidden = panel.dataset.quarter !== key;
+      });
+    });
+  });
+</script>

@@ -7,6 +7,10 @@
   ASTRO_TELEMETRY_DISABLED = "1"
   # 站点访问密码（构建期读取，明文不入前端产物，只输出 SHA-256 摘要）
   PUBLIC_SITE_PASSWORD = "123456"
+  # 日记数据源（可选）。配置后每次部署会自动拉取 dty_daily_diary 最新数据；
+  # 未配置时构建沿用仓库里的 public/data/daily-diary.json 快照，不会失败。
+  # 请在 Netlify 后台 Site settings -> Environment variables 添加以下变量：
+  #   DIARY_DB_HOST / DIARY_DB_PORT / DIARY_DB_USER / DIARY_DB_PASSWORD / DIARY_DB_NAME
 
 [[headers]]
   for = "/*"

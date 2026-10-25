@@ -1,34 +1,707 @@
 ---
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import { formatDate } from "@/utils/posts";
-import { getDiaryEntries, getDiarySlug, getDiaryTitle } from "@/utils/diary";
 
-const entries = await getDiaryEntries();
+type Entry = {
+  date: string;
+  work: string | null;
+  life: string | null;
+  others: string | null;
+  label: string;
+};
+
+type Payload = {
+  syncedAt: string;
+  stats: { total: number; days: number; start: string | null; end: string | null };
+  entries: Entry[];
+};
+
+const dataPath = resolve(process.cwd(), "public/data/daily-diary.json");
+const data: Payload = existsSync(dataPath)
+  ? JSON.parse(readFileSync(dataPath, "utf8"))
+  : { syncedAt: "", stats: { total: 0, days: 0, start: null, end: null }, entries: [] };
+
+const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+const PARTS = [
+  { key: "work", title: "工作", en: "Work" },
+  { key: "life", title: "生活", en: "Life" },
+  { key: "others", title: "其他", en: "Others" }
+] as const;
+
+const escapeHtml = (text: string) =>
+  text.replace(/[&<>"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char] as string);
+
+/** 空行分段，单换行保留为换行 */
+const toParagraphs = (text: string) =>
+  escapeHtml(text)
+    .split(/\n{2,}/)
+    .map(block => `<p>${block.split("\n").join("<br />")}</p>`)
+    .join("");
+
+type ViewEntry = Entry & {
+  year: string;
+  month: string;
+  day: string;
+  weekday: string;
+  kinds: string;
+  parts: { key: string; title: string; en: string; html: string; long: boolean }[];
+  search: string;
+};
+
+const entries: ViewEntry[] = data.entries.map(entry => {
+  const [year, month, day] = entry.date.split("-");
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  const parts = PARTS.map(part => {
+    const raw = entry[part.key];
+    if (!raw) return null;
+    return {
+      key: part.key,
+      title: part.title,
+      en: part.en,
+      html: toParagraphs(raw),
+      long: raw.length > 240
+    };
+  }).filter((part): part is NonNullable<typeof part> => part !== null);
+
+  return {
+    ...entry,
+    year,
+    month,
+    day,
+    weekday: `周${WEEKDAYS[date.getDay()]}`,
+    kinds: parts.map(part => part.key).join(" "),
+    parts,
+    search: [entry.date, entry.label, entry.work, entry.life, entry.others].filter(Boolean).join(" ").toLowerCase()
+  };
+});
+
+const labels = [...new Set(entries.map(entry => entry.label).filter(Boolean))].sort((a, b) =>
+  a.localeCompare(b, "zh-CN")
+);
+
+const years = [...new Set(entries.map(entry => entry.year))];
+
+const groupLabel = data.stats.start && data.stats.end
+  ? `${data.stats.start.slice(0, 4)} — ${data.stats.end.slice(0, 4)}`
+  : "—";
+
+const syncedLabel = data.syncedAt
+  ? new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(data.syncedAt))
+  : "—";
 ---
 
-<BaseLayout title="日记" description="日常记录与流水账">
-  <section class="container">
-    <p class="eyebrow">Diary</p>
-    <h1>日记</h1>
-    <p class="lead">
-      不按主题归档，只按时间往下写。共 {entries.length} 篇。
-    </p>
+<BaseLayout title="日记" description="按时间记录的工作与生活片段">
+  <section class="container diary-hero">
+    <p class="eyebrow">Daily Diary</p>
+    <h1 class="diary-title">日记</h1>
+    <p class="lead diary-lead">工作、生活、别的什么，想到什么记什么。按时间往下读。</p>
+    <dl class="diary-stats">
+      <div>
+        <dt>记录</dt>
+        <dd>{data.stats.total}</dd>
+      </div>
+      <div>
+        <dt>日子</dt>
+        <dd>{data.stats.days}</dd>
+      </div>
+      <div>
+        <dt>跨度</dt>
+        <dd class="diary-span">{groupLabel}</dd>
+      </div>
+    </dl>
   </section>
 
-  <section class="container section">
-    {entries.length === 0 ? (
-      <p class="muted">还没有日记，把 Markdown 文件放进 src/content/diary/ 就会出现。</p>
-    ) : (
-      <div class="post-list">
-        {entries.map(entry => (
-          <a class="post-card" href={`/dty_daily_diary/${getDiarySlug(entry)}/`}>
-            <div class="post-meta">
-              <time datetime={entry.data.date.toISOString()}>{formatDate(entry.data.date)}</time>
-            </div>
-            <h3>{getDiaryTitle(entry)}</h3>
-          </a>
-        ))}
+  <section class="container">
+    <div class="diary-bar">
+      <div class="diary-chips" role="group" aria-label="按类别筛选">
+        <button type="button" class="diary-chip is-active" data-kind="all" aria-pressed="true">全部</button>
+        <button type="button" class="diary-chip" data-kind="work" aria-pressed="false">工作</button>
+        <button type="button" class="diary-chip" data-kind="life" aria-pressed="false">生活</button>
+        <button type="button" class="diary-chip" data-kind="others" aria-pressed="false">其他</button>
       </div>
-    )}
+
+      {
+        labels.length > 0 && (
+          <div class="diary-chips" role="group" aria-label="按标签筛选">
+            <button type="button" class="diary-chip is-active" data-label="all" aria-pressed="true">
+              全部标签
+            </button>
+            {labels.map(label => (
+              <button type="button" class="diary-chip" data-label={label} aria-pressed="false">
+                {label}
+              </button>
+            ))}
+          </div>
+        )
+      }
+
+      <div class="diary-search">
+        <input id="diary-search" type="search" placeholder="搜内容、标签或日期…" aria-label="搜索日记" />
+        <span class="diary-count"><b id="diary-visible">{entries.length}</b> / {entries.length}</span>
+      </div>
+    </div>
+
+    {
+      entries.length === 0 ? (
+        <p class="diary-empty">还没有日记。先运行 <code>npm run sync:diary</code> 同步数据。</p>
+      ) : (
+        <div class="diary-timeline" id="diary-timeline">
+          {years.map(year => (
+            <>
+              <div class="timeline-year" data-year={year}>
+                <span>{year}</span>
+              </div>
+              {entries
+                .filter(entry => entry.year === year)
+                .map(entry => (
+                  <article
+                    class="diary-entry"
+                    data-kind={entry.kinds}
+                    data-label={entry.label}
+                    data-search={entry.search}
+                  >
+                    <div class="diary-date">
+                      <span class="diary-day">{entry.day}</span>
+                      <span class="diary-ym">{entry.month}月 · {entry.year}</span>
+                      <span class="diary-week">{entry.weekday}</span>
+                    </div>
+
+                    <div class="diary-card">
+                      {entry.label && <span class="diary-label">{entry.label}</span>}
+                      {entry.parts.map(part => (
+                        <section class="diary-part" data-kind={part.key}>
+                          <h3>
+                            <span>{part.title}</span>
+                            <em>{part.en}</em>
+                          </h3>
+                          <div class:list={["diary-text", { "is-clamped": part.long }]} set:html={part.html} />
+                          {part.long && (
+                            <button type="button" class="diary-more" aria-expanded="false">
+                              展开全文
+                            </button>
+                          )}
+                        </section>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+            </>
+          ))}
+        </div>
+      )
+    }
+
+    <p class="diary-empty" id="diary-no-match" hidden>没有符合条件的记录。</p>
+
+    <p class="diary-source">
+      数据来源：MySQL 表 <code>dty_daily_diary</code> · 最近同步 {syncedLabel}
+    </p>
   </section>
 </BaseLayout>
+
+<style>
+  .diary-hero {
+    padding-bottom: 18px;
+  }
+
+  .diary-title {
+    font-size: clamp(2.6rem, 9vw, 5rem);
+    letter-spacing: -0.02em;
+  }
+
+  .diary-lead {
+    margin-top: 14px;
+  }
+
+  .diary-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 26px 0 0;
+    padding: 0;
+  }
+
+  .diary-stats div {
+    display: grid;
+    gap: 2px;
+    min-width: 104px;
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+
+  .diary-stats dt {
+    color: var(--muted);
+    font-size: 0.76rem;
+    letter-spacing: 0.16em;
+  }
+
+  .diary-stats dd {
+    margin: 0;
+    font-size: 1.7rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .diary-stats .diary-span {
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+
+  .diary-bar {
+    position: sticky;
+    top: 72px;
+    z-index: 6;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    align-items: center;
+    margin: 18px 0 26px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg), transparent 8%);
+    backdrop-filter: blur(14px);
+  }
+
+  .diary-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .diary-chip {
+    padding: 6px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+
+  .diary-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  .diary-chip.is-active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--surface-strong);
+    font-weight: 700;
+  }
+
+  .diary-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+  }
+
+  .diary-search input {
+    width: min(46vw, 260px);
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.9rem;
+  }
+
+  .diary-search input:focus {
+    outline: 2px solid color-mix(in srgb, var(--accent), transparent 55%);
+    outline-offset: 1px;
+  }
+
+  .diary-count {
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .diary-count b {
+    color: var(--accent-strong);
+  }
+
+  .diary-timeline {
+    position: relative;
+    display: grid;
+    gap: 22px;
+    padding-bottom: 8px;
+  }
+
+  .diary-timeline::before {
+    content: "";
+    position: absolute;
+    top: 10px;
+    bottom: 10px;
+    left: 105px;
+    width: 1px;
+    background: linear-gradient(var(--line), color-mix(in srgb, var(--accent), transparent 55%), var(--line));
+  }
+
+  .timeline-year {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    align-items: center;
+    gap: 26px;
+    margin: 12px 0 2px;
+  }
+
+  .timeline-year span {
+    grid-column: 1;
+    justify-self: end;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .diary-entry {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 26px;
+    align-items: start;
+  }
+
+  .diary-date {
+    position: relative;
+    display: grid;
+    justify-items: end;
+    gap: 2px;
+    padding-top: 16px;
+    text-align: right;
+  }
+
+  .diary-date::after {
+    content: "";
+    position: absolute;
+    top: 26px;
+    right: -20px;
+    width: 9px;
+    height: 9px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    background: var(--bg);
+  }
+
+  .diary-day {
+    font-size: 1.9rem;
+    font-weight: 800;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .diary-ym,
+  .diary-week {
+    color: var(--muted);
+    font-size: 0.74rem;
+    letter-spacing: 0.06em;
+  }
+
+  .diary-card {
+    position: relative;
+    display: grid;
+    gap: 18px;
+    padding: 22px 24px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+  }
+
+  .diary-card:hover {
+    border-color: color-mix(in srgb, var(--accent), var(--line) 45%);
+    box-shadow: var(--shadow);
+    transform: translateY(-1px);
+  }
+
+  .diary-label {
+    position: absolute;
+    top: -1px;
+    right: 18px;
+    padding: 3px 10px;
+    border-radius: 0 0 8px 8px;
+    background: var(--accent);
+    color: var(--surface-strong);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+
+  .diary-part {
+    display: grid;
+    gap: 8px;
+    padding-left: 14px;
+    border-left: 2px solid var(--line);
+  }
+
+  .diary-part[data-kind="work"] {
+    border-color: var(--accent);
+  }
+
+  .diary-part[data-kind="life"] {
+    border-color: #c98a4b;
+  }
+
+  .diary-part[data-kind="others"] {
+    border-color: color-mix(in srgb, var(--muted), transparent 45%);
+  }
+
+  .diary-part h3 {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0;
+    color: var(--text);
+    font-size: 0.82rem;
+    letter-spacing: 0.16em;
+  }
+
+  .diary-part h3 em {
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-style: normal;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  .diary-text {
+    font-size: 1rem;
+    line-height: 1.95;
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+
+  .diary-text :global(p) {
+    margin: 0 0 0.65em;
+  }
+
+  .diary-text :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .diary-text.is-clamped {
+    max-height: 9.8em;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(#000 62%, transparent);
+    mask-image: linear-gradient(#000 62%, transparent);
+  }
+
+  .diary-entry[hidden],
+  .timeline-year[hidden],
+  .diary-empty[hidden] {
+    display: none;
+  }
+
+  .diary-more {
+    justify-self: start;
+    padding: 2px 0;
+    border: none;
+    background: none;
+    color: var(--accent-strong);
+    font-size: 0.84rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .diary-more:hover {
+    text-decoration: underline;
+  }
+
+  .diary-empty {
+    padding: 40px 0;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .diary-empty code {
+    padding: 2px 6px;
+    border-radius: 5px;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+  }
+
+  .diary-source {
+    margin-top: 34px;
+    padding-top: 18px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .diary-source code {
+    color: var(--accent-strong);
+  }
+
+  @media (max-width: 720px) {
+    .diary-bar {
+      position: static;
+    }
+
+    .diary-search {
+      width: 100%;
+      margin-left: 0;
+    }
+
+    .diary-search input {
+      width: 100%;
+    }
+
+    .diary-timeline::before {
+      display: none;
+    }
+
+    .timeline-year,
+    .diary-entry {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .timeline-year span {
+      grid-column: 1;
+      justify-self: start;
+    }
+
+    .diary-date {
+      grid-auto-flow: column;
+      justify-content: start;
+      justify-items: start;
+      align-items: baseline;
+      gap: 8px;
+      padding-top: 0;
+    }
+
+    .diary-date::after {
+      display: none;
+    }
+
+    .diary-day {
+      font-size: 1.1rem;
+    }
+
+    .diary-card {
+      padding: 18px 16px;
+    }
+  }
+</style>
+
+<script>
+  const timeline = document.getElementById("diary-timeline");
+  const visibleCount = document.getElementById("diary-visible");
+  const noMatch = document.getElementById("diary-no-match");
+  const searchInput = document.getElementById("diary-search") as HTMLInputElement | null;
+
+  let activeKind = "all";
+  let activeLabel = "all";
+  let keyword = "";
+
+  const entries = () => Array.from(document.querySelectorAll<HTMLElement>(".diary-entry"));
+
+  function apply() {
+    let shown = 0;
+    for (const entry of entries()) {
+      const kinds = entry.dataset.kind ?? "";
+      const label = entry.dataset.label ?? "";
+      const matchesKind = activeKind === "all" || kinds.split(" ").includes(activeKind);
+      const matchesLabel = activeLabel === "all" || label === activeLabel;
+      const matchesKeyword = !keyword || (entry.dataset.search ?? "").includes(keyword);
+      const visible = matchesKind && matchesLabel && matchesKeyword;
+      entry.hidden = !visible;
+      if (visible) shown += 1;
+    }
+
+    if (visibleCount) visibleCount.textContent = String(shown);
+    if (noMatch) noMatch.hidden = shown !== 0;
+
+    const headers = Array.from(document.querySelectorAll<HTMLElement>(".timeline-year"));
+    headers.forEach((header, index) => {
+      const next = headers[index + 1];
+      let hasVisible = false;
+      let node = header.nextElementSibling;
+      while (node && node !== next) {
+        if (node.classList.contains("diary-entry") && !(node as HTMLElement).hidden) {
+          hasVisible = true;
+          break;
+        }
+        node = node.nextElementSibling;
+      }
+      header.hidden = !hasVisible;
+    });
+  }
+
+  document.querySelectorAll<HTMLButtonElement>(".diary-chip[data-kind]").forEach(chip => {
+    chip.addEventListener("click", () => {
+      activeKind = chip.dataset.kind ?? "all";
+      document.querySelectorAll<HTMLButtonElement>(".diary-chip[data-kind]").forEach(other => {
+        const on = other === chip;
+        other.classList.toggle("is-active", on);
+        other.setAttribute("aria-pressed", String(on));
+      });
+      apply();
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>(".diary-chip[data-label]").forEach(chip => {
+    chip.addEventListener("click", () => {
+      activeLabel = chip.dataset.label ?? "all";
+      document.querySelectorAll<HTMLButtonElement>(".diary-chip[data-label]").forEach(other => {
+        const on = other === chip;
+        other.classList.toggle("is-active", on);
+        other.setAttribute("aria-pressed", String(on));
+      });
+      apply();
+    });
+  });
+
+  if (searchInput) {
+    const input = searchInput;
+
+    input.addEventListener("input", () => {
+      keyword = input.value.trim().toLowerCase();
+      apply();
+    });
+
+    input.addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        input.value = "";
+        keyword = "";
+        apply();
+      }
+    });
+  }
+
+  document.addEventListener("keydown", event => {
+    if (event.key === "/" && document.activeElement !== searchInput) {
+      event.preventDefault();
+      searchInput?.focus();
+    }
+  });
+
+  document.querySelectorAll<HTMLButtonElement>(".diary-more").forEach(button => {
+    button.addEventListener("click", () => {
+      const text = button.parentElement?.querySelector(".diary-text");
+      if (!text) return;
+      const expanded = text.classList.toggle("is-clamped") === false;
+      button.setAttribute("aria-expanded", String(expanded));
+      button.textContent = expanded ? "收起" : "展开全文";
+    });
+  });
+
+  apply();
+</script>
